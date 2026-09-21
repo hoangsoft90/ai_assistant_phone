@@ -119,13 +119,13 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [ ] **K21 (🟠):** APK +32MB (model Vosk) + ~51MB giải nén lần đầu trong `filesDir`; RAM khi nạp model chưa đo — ảnh hưởng trực tiếp quyết định engine mặc định.
 - [ ] **Quyết PhoWhisper/Vosk là mặc định** — hiện chọn PhoWhisper theo số host P0 (WER 16.6% vs 52.2%), cần xác nhận bằng RTF/pin trên máy (K18/K19).
 
-### Phát hiện từ review P1D (CHƯA sửa — đang chờ người dùng duyệt)
+### Phát hiện từ review P1D — ĐÃ SỬA (commit `2c0ae82` + `e6f01ac`, CI `35617319912` xanh)
 
-- [ ] **K22 (🔴) — việc nặng chạy trên main thread:** `loadModel` (Vosk) giải nén 51MB + `Model()` + `Recognizer()` **ngay trong method handler** của MethodChannel ⇒ handler chạy trên platform/main thread ⇒ treo UI lần nạp đầu, có nguy cơ vào vùng ANR (5s) trên máy chậm. `AsrChannelBridge` (P1C) cùng vấn đề ở mức nhẹ hơn (`whisper_init_from_file` trên main).
-- [ ] **K23 (🟠) — worker Vosk có thể sống lại sau release bị treo:** `release()` bỏ qua việc đóng native khi thread chưa dừng, nhưng `load()` sau đó đặt `closed=false` ⇒ **thread cũ sống lại và dùng chung `recognizer` với thread mới** (Vosk native không thread-safe). Cần "thế hệ" (generation token).
-- [ ] **K24 (🟡) — getter chết:** `audioMsTotal`, `pendingChunks`, `droppedTotal` trong `VoskStreamingBridge` không có nơi gọi (bước dead-code check của review).
-- [ ] **K25 (🟠) — `init()` không có timeout:** nếu phía native không bao giờ trả lời `loadModel`, `AsrEngineSelector` không bao giờ chạy fallback và UI kẹt ở trạng thái bận.
-- [ ] **K26 (🟡) — mất câu đang nói dở khi tắt ASR:** Vosk không gọi `getFinalResult()` trong `dispose()` ⇒ audio từ endpoint cuối tới lúc tắt không được nhận dạng.
+- [x] **K22 — việc nặng chạy trên main thread:** `loadModel` (Vosk) giải nén 51MB + `Model()` + `Recognizer()` **ngay trong method handler** của MethodChannel ⇒ handler chạy trên platform/main thread ⇒ treo UI lần nạp đầu, có nguy cơ vào vùng ANR (5s) trên máy chậm. `AsrChannelBridge` (P1C) cùng vấn đề ở mức nhẹ hơn (`whisper_init_from_file` trên main).
+- [x] **K23 — worker Vosk có thể sống lại sau release bị treo:** `release()` bỏ qua việc đóng native khi thread chưa dừng, nhưng `load()` sau đó đặt `closed=false` ⇒ **thread cũ sống lại và dùng chung `recognizer` với thread mới** (Vosk native không thread-safe). Cần "thế hệ" (generation token).
+- [x] **K24 — getter chết:** `audioMsTotal`, `pendingChunks`, `droppedTotal` trong `VoskStreamingBridge` không có nơi gọi (bước dead-code check của review).
+- [x] **K25 — `init()` không có timeout:** nếu phía native không bao giờ trả lời `loadModel`, `AsrEngineSelector` không bao giờ chạy fallback và UI kẹt ở trạng thái bận.
+- [x] **K26 — mất câu đang nói dở khi tắt ASR:** Vosk không gọi `getFinalResult()` trong `dispose()` ⇒ audio từ endpoint cuối tới lúc tắt không được nhận dạng.
 
 ### Thuộc P1B (DoD chưa xác minh — cần APK + máy thật)
 
