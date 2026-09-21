@@ -26,6 +26,8 @@ void main() {
       'com.aiassistant.phone/audio_capture_pcm',
       // P1B — VAD (xem lib/audio/vad/vad_client.dart).
       'com.aiassistant.phone/vad',
+      // P1C — ASR (xem lib/audio/asr/phowhisper_asr_engine.dart).
+      'com.aiassistant.phone/asr',
     ];
     for (final String name in channels) {
       messenger.setMockMethodCallHandler(MethodChannel(name), (MethodCall call) async => null);

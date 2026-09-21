@@ -120,7 +120,7 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 
 ## Cần hỏi lại người dùng
 
-- [ ] Repo GitHub dự định tạo là repo nào, và có muốn tôi dựng workflow build APK (Flutter + NDK 28.2) ngay không?
+- [x] ~~Repo GitHub dự định tạo là repo nào, có muốn dựng workflow build APK~~ → **Đã xong 2026-09-21:** repo `hoangsoft90/ai_assistant_phone` (branch `main`), workflow `build-debug-apk.yml` chạy bằng gradlew trực tiếp, run #1 đã trigger. Token GH do user cấp, lưu trong skill `.agents/skills/ai-assistant-phone-debug-apk/SKILL.md` (local-only), không hỏi lại.
 - [ ] Có commit phần P0 + P0.5 hiện tại không? (repo **0 commit**; tôi chưa commit gì.) Nếu có, muốn chia mấy commit?
 - [ ] Xoá hay giữ `spikes/p0_audio/` (code thăm dò P0)? Prompt P0.5 nói "thay thế hoàn toàn" nhưng xoá là việc khó hoàn tác nên tôi chưa làm.
 - [ ] Khi có điện thoại: bạn tự thao tác phần tay (rút tai nghe giữa lúc TTS, chấm % từ đúng) hay muốn tôi hướng dẫn từng bước realtime?

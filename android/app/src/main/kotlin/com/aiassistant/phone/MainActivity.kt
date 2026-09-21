@@ -1,5 +1,6 @@
 package com.aiassistant.phone
 
+import com.aiassistant.phone.asr.AsrChannelBridge
 import com.aiassistant.phone.audio.CaptureChannelBridge
 import com.pravera.flutter_foreground_task.FlutterForegroundTaskLifecycleListener
 import com.pravera.flutter_foreground_task.FlutterForegroundTaskStarter
@@ -35,6 +36,8 @@ class MainActivity : FlutterActivity() {
       val engine = flutterEngine ?: return
       serviceEngineMessenger = engine.dartExecutor.binaryMessenger
       CaptureChannelBridge.register(engine.dartExecutor.binaryMessenger, applicationContext)
+      // P1C: kênh ASR cho isolate của service (P2 sẽ chạy ASR trong service engine).
+      AsrChannelBridge.register(engine.dartExecutor.binaryMessenger, applicationContext)
     }
 
     override fun onTaskStart(starter: FlutterForegroundTaskStarter) = Unit
@@ -54,6 +57,8 @@ class MainActivity : FlutterActivity() {
     super.configureFlutterEngine(flutterEngine)
     // Engine UI: cho phép UI bật/tắt capture và nhận trạng thái/lỗi.
     CaptureChannelBridge.register(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
+    // P1C: kênh ASR cho engine UI (loadModel/feed từ Dart).
+    AsrChannelBridge.register(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
     // Engine của service: cho phép isolate nền subscribe chunk PCM (P1B dùng để chạy VAD).
     ForegroundService.addTaskLifecycleListener(captureEngineListener)
   }

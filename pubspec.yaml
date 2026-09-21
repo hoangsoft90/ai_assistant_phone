@@ -89,6 +89,13 @@ flutter:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
 
+  # P1C: model PhoWhisper-tiny q5_0 (29MB, convert từ P0) đóng gói trong APK.
+  # Đổi khác so với P0: spike đọc model từ thư mục ngoài + adb push để không phải build lại;
+  # app thật dùng asset để cài là chạy (không cần adb). Model base q5_0 (53MB) KHÔNG đóng gói
+  # — chỉ tiny (ràng buộc kích thước APK; base để đo lại sau nếu tiny kém quá).
+  assets:
+    - assets/models/ggml-phowhisper-tiny-q5_0.bin
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

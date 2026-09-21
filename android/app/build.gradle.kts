@@ -27,6 +27,12 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // P1C: chỉ build 1 ABI (máy test arm64-v8a) — whisper.cpp build cho mỗi ABI đều tốn
+        // thời gian CI đáng kể. Thêm ABI khác khi cần phân phối rộng.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -34,6 +40,13 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    // P1C: build whisper.cpp (FetchContent pin commit trong cpp/CMakeLists.txt) + JNI wrapper.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
         }
     }
 }

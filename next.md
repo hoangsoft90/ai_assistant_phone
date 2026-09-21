@@ -36,7 +36,7 @@ Tổng ước tính tới lúc dùng được (bỏ P6): **~9–11 tuần**.
 
 ## Việc sắp tới (theo thứ tự)
 
-1. **Chốt đường build** — build APK trên GitHub Actions (chờ bạn đưa repo). **[ĐÃ CHỐT 2026-09-21: KHÔNG build tại máy dev** — `/home` chỉ còn ~265MB free, không đủ SDK/NDK + build cache; user đã yêu cầu dừng hướng build local.] Chưa có bước này thì không có gì để test.
+1. **Chốt đường build — XONG 2026-09-21:** KHÔNG build tại máy dev (`/home` ~265MB free); đã push `main` lên `hoangsoft90/ai_assistant_phone`, workflow `build-debug-apk.yml` (gradlew trực tiếp) — run #1 đã trigger. Việc kế tiếp: xem kết quả run để đóng/mở nợ K11/K14; nếu fail → lấy log job theo skill `.agents/skills/ai-assistant-phone-debug-apk/SKILL.md`.
    · **Nợ kiểm chứng hiện đã chồng 4 lớp**: P0 (5 mục), P0.5 (3 mục), P1A (5 mục), P1B (4 mục) — tất cả đều chỉ vướng một việc duy nhất là *build APK + cầm máy thật*. Ưu tiên tuyệt đối: dựng được APK trước khi mở thêm phase. Riêng P1B còn có ngưỡng VAD **phải** tinh chỉnh bằng giọng thật ⇒ viết thêm code trước khi đo chỉ tạo ra ngưỡng "đúng trên giấy".
 2. **Build + cài APK** lên điện thoại, xác nhận app mở, xin quyền mic, đọc được model.
 3. **`adb push` model** vào `/sdcard/Android/data/vn.p0spike.p0_spike/files/models/` và xác nhận app nhận cả 2 model.
