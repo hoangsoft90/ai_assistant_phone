@@ -18,7 +18,8 @@ FetchContent_Declare(
   whisper
   URL https://github.com/ggml-org/whisper.cpp/archive/307869af285d7f6f689ba100b3515e2d1b3feb05.tar.gz
   URL_HASH SHA256=96a734e909ba97f4a413e16aa3abd21a9100f4ac5e95cd9b3ea6f4f4d27e836f
-  DOWNLOAD_EXTRACT_TIMESTAMP OFF
+  # KHÔNG dùng DOWNLOAD_EXTRACT_TIMESTAMP: cmake 3.22.1 (mặc định NDK) không nhận keyword này
+  # trong FetchContent_Declare (chỉ thêm ở 3.24) — parser gộp nó vào URL_HASH và fail configure.
 )
 
 # Các cờ dưới đây là những chỗ hay làm fail build Android lần đầu:
