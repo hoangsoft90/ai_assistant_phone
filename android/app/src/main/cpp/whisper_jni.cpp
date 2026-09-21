@@ -1,12 +1,11 @@
 // JNI wrapper cho whisper.cpp — port từ spike P0 (đã compile sạch bằng g++ host đối chiếu
 // whisper.h thật), đổi symbol JNI sang package app thật + thêm callback trả kết quả cho Kotlin.
 //
-// LƯU Ý SYMBOL JNI: Kotlin class nằm ở package `com.aiassistant.phone.asr` — ký tự `.` đổi thành
-// `_` là đủ, nhưng đoạn `asr` của package PHẢI escape thành `_asr_` (một `_` trong package đổi
-// thành `_1`, còn `asr` không phải chunk bắt đầu bằng số nên được giữ nguyên; dẫu vậy JNI decode
-// tên runtime dùng `_` làm dấu phân tách — nếu thiếu `_` ở biên `phone`/`asr` thì khớp sai tên
-// class và UnresolvedDefinitionException xảy ra khi System.loadLibrary + lần gọi đầu). Thực tế:
-// `_` của `asr` được chèn thủ công thành `_asr_` để phân tách rõ ràng.
+// LƯU Ý SYMBOL JNI (mangling chuẩn JNI spec): Java_ + tên class đã mangled + "_" + tên method.
+// Mangled class = đổi mọi `.` thành `_`; CHỈ ký tự `_` nằm BÊN TRONG identifier mới escape thành
+// `_1` (vd package `p0_spike` của spike P0 -> `p0_1spike`). Package của app là
+// `com.aiassistant.phone.asr` — không có `_` thật nào, nên kết quả đúng là:
+//   Java_com_aiassistant_phone_asr_AsrNative_nativeLoadModel   (một `_` giữa phone và asr)
 //
 // Model phải là GGML convert từ whisper.cpp commit đang pin (xem CMakeLists.txt) — file
 // ggml-phowhisper-tiny-q5_0.bin đã convert đúng bản đó ở P0.
@@ -33,9 +32,9 @@ whisper_context *as_ctx(jlong ptr) {
 
 extern "C" {
 
-// Tên hàm phải khớp package: com.aiassistant.phone.asr.AsrNative — `.` -> `_`, đoạn `asr` -> `_asr_`.
+// Tên hàm phải khớp package: com.aiassistant.phone.asr.AsrNative -> mỗi `.` thành `_`.
 JNIEXPORT jlong JNICALL
-Java_com_aiassistant_phone__asr_AsrNative_nativeLoadModel(JNIEnv *env, jobject /*thiz*/,
+Java_com_aiassistant_phone_asr_AsrNative_nativeLoadModel(JNIEnv *env, jobject /*thiz*/,
                                                      jstring jpath, jint jthreads) {
     const char *path = env->GetStringUTFChars(jpath, nullptr);
     if (path == nullptr) {
@@ -55,7 +54,7 @@ Java_com_aiassistant_phone__asr_AsrNative_nativeLoadModel(JNIEnv *env, jobject /
     return reinterpret_cast<jlong>(ctx);
 }
 
-JNIEXPORT void JNICALL Java_com_aiassistant_phone__asr_AsrNative_nativeFreeModel(JNIEnv * /*env*/,
+JNIEXPORT void JNICALL Java_com_aiassistant_phone_asr_AsrNative_nativeFreeModel(JNIEnv * /*env*/,
                                                                             jobject /*thiz*/,
                                                                             jlong jctx) {
     if (jctx != 0) {
@@ -66,7 +65,7 @@ JNIEXPORT void JNICALL Java_com_aiassistant_phone__asr_AsrNative_nativeFreeModel
 
 // Nhận dạng một chunk PCM float 16kHz. Trả về text (rỗng nếu không có tiếng nói) hoặc
 // "ERR:<code>" khi whisper_full thất bại — Kotlin phía trên log rõ ràng.
-JNIEXPORT jstring JNICALL Java_com_aiassistant_phone__asr_AsrNative_nativeTranscribe(
+JNIEXPORT jstring JNICALL Java_com_aiassistant_phone_asr_AsrNative_nativeTranscribe(
     JNIEnv *env, jobject /*thiz*/, jlong jctx, jfloatArray jsamples, jint n_threads) {
     whisper_context *ctx = as_ctx(jctx);
     if (ctx == nullptr) {
