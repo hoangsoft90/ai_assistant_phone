@@ -1,0 +1,48 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+context: |
+  Sản phẩm: app Android CÁ NHÂN hỗ trợ giao tiếp realtime — nghe hội thoại và đưa gợi ý ngắn
+  (nudge) khi người dùng CHỦ ĐỘNG bấm nút xin gợi ý (push-to-suggest).
+
+  Tech stack: Flutter (Android only). ASR on-device: PhoWhisper qua whisper.cpp (chính, GGML q5_0)
+  và Vosk (dự phòng), bọc sau interface AsrEngine. TTS: android TextToSpeech bọc trong SafeTtsOutput.
+  LLM: Groq Llama / Gemini Flash. Không có server riêng, không có cloud ASR cho chiều thu.
+
+  Ràng buộc cứng (không được vi phạm ở bất kỳ change nào):
+  - Chiều thu (nghe + ASR) chạy 100% offline, không phụ thuộc mạng/quota bên thứ ba.
+  - TTS chỉ được phát ra tai nghe, tuyệt đối không ra loa ngoài; từ P1F mọi phát âm thanh phải
+    đi qua SafeTtsOutput (không gọi flutter_tts/TextToSpeech trực tiếp).
+  - Transcript lưu dạng thô + timestamp, KHÔNG có trường speaker/label.
+  - Push thủ công không cooldown; cooldown chỉ áp cho semi-auto mode (P6).
+  - Training Level thủ công, không tự động đề xuất/chuyển cấp.
+  - Chỉ 1 điện thoại + 4G + 1 tai nghe Bluetooth; mic thu là mic điện thoại (tai nghe chỉ phát).
+
+  Quy trình: các phase nằm trong .plan/ (prompt_<PHASE>.md + production_roadmap.md; kế hoạch chi
+  tiết ở .plan/plan_final_v2.md). Một change trong openspec/changes/ nên tương ứng với 1 phase.
+  Quy ước tên change/spec: KHÔNG bắt đầu bằng ký tự số (vd 'P0.5' phải đặt kiểu
+  'add-project-bootstrap').
+
+  Ghi chú hiện trạng: mới xong phần chuẩn bị của P0 (spike audio, xem .plan/P0-result.md);
+  chưa có tính năng sản phẩm nào.
+
+# Per-artifact rules (optional)
+rules:
+  proposal:
+    - Nêu rõ change này thuộc phase nào trong .plan/production_roadmap.md.
+    - Mục Non-goals phải nhắc lại các ràng buộc cứng ở phần context nếu change chạm vào audio/TTS.
+  tasks:
+    - Mỗi task phải có tiêu chí kiểm chứng được (lệnh/test cụ thể), không chỉ mô tả việc.
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

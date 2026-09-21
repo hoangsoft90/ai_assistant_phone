@@ -1,0 +1,100 @@
+KẾT QUẢ PHIÊN — 2026-09-21 15:17 (+07)
+Dự án : ai_assistant_phone (repo: /home/hoangweb24/htdocs_apps/ai_assistant_phone)
+Phase : P0 — Audio Feasibility Spike
+Trạng thái: CHƯA HOÀN THÀNH — dừng ở Precondition (không có thiết bị thật). 0/5 mục DoD đạt.
+
+------------------------------------------------------------------
+1. PRECONDITION (đã kiểm tra bằng lệnh thật)
+------------------------------------------------------------------
+[KHÔNG ĐẠT] 1 điện thoại Android thật + USB debug  -> `adb devices -l` rỗng
+[KHÔNG ĐẠT] 1 tai nghe Bluetooth thật              -> máy dev không có `bluetoothctl`
+[ĐẠT]       Không có precondition về code          -> repo mới, chưa có commit nào
+
+------------------------------------------------------------------
+2. MODEL ASR ĐÃ TẠO (spikes/p0_audio/models/, 133MB, đã gitignore)
+------------------------------------------------------------------
+ggml-phowhisper-base-q5_0.bin   55 MB   (từ vinai/PhoWhisper-base)
+ggml-phowhisper-tiny-q5_0.bin   30 MB   (từ vinai/PhoWhisper-tiny)
+vosk-model-small-vn-0.4/        51 MB
+Kiểm chứng: convert ra đúng kích thước f16 chuẩn của whisper (tiny 75MB, base 142MB)
+=> không lỗi convert; và load + decode được thật bằng whisper-cli, không chỉ "file tồn tại".
+Bản đầy đủ ở /tmp/p0spike/models/ (thêm f16, vosk-model-vn-0.4 bản lớn 168MB).
+
+------------------------------------------------------------------
+3. SỐ LIỆU ĐO TRÊN HOST (KHÔNG phải điện thoại)
+------------------------------------------------------------------
+Bộ test: 10 clip FLEURS vi_vn/validation, giọng người thật, có transcript ground-truth.
+Host: 4 CPU, whisper.cpp Release 4 threads, Vosk Python API.
+"raw" = audio gốc; "norm" = đã peak-normalize về 0.5.
+
+Model                    Size    WER raw  WER norm   RTF raw  RTF norm
+PhoWhisper-base f16      148 MB   12.3%    12.3%     0.49     0.50
+PhoWhisper-base q5_0      55 MB   12.4%    13.0%     0.54     0.53
+PhoWhisper-tiny f16       78 MB   15.8%    15.5%     0.27     0.26
+PhoWhisper-tiny q5_0      30 MB   15.5%    16.6%     0.30     0.29
+Vosk small vn 0.4         51 MB   52.2%*   41.1%     0.95     1.09   (*2/10 clip RỖNG)
+Vosk vn 0.4 (lớn)        168 MB   53.0%*   40.3%     0.18     0.21   (*2/10 clip RỖNG)
+
+Phát hiện:
+- Quantize q5_0 gần như miễn phí (148MB -> 55MB, WER 12.3% -> 12.4%).
+- Vosk trả về RỖNG với audio nhỏ tiếng: 2 clip có peak 546 và 830/32767 (các clip khác
+  3334-8601). Sau khi khuếch đại x20-x30 thì đọc được. Đúng kịch bản mic để xa người nói
+  => nếu chọn Vosk thì P1A bắt buộc phải có kiểm soát gain/AGC.
+- RTF base 0.53 trên host => chunk 3s mất ~1.6s xử lý; trên CPU điện thoại sẽ chậm hơn
+  nhiều lần => đây chính là con số P0 phải đo lại trên máy thật.
+- Số trong plan (PhoWhisper 4.6% WER, Vosk ~12%) KHÔNG cùng thang đo với FLEURS.
+
+Bằng chứng thô: spikes/p0_audio/reports/*.json (5 file).
+
+------------------------------------------------------------------
+4. APP SPIKE (spikes/p0_audio/app/) — ĐÃ VIẾT CODE, CHƯA BAO GIỜ BUILD
+------------------------------------------------------------------
+Flutter 3.47.2 / Dart 3.13.2, AGP 9.1.0, Kotlin 2.4.0, NDK 28.2.13676358, minSdk 24.
+1129 dòng tự viết: lib/main.dart, SpikeController.kt, AsrEngines.kt, RouteProbe.kt,
+SpikeService.kt, MainActivity.kt, cpp/whisper_jni.cpp, cpp/CMakeLists.txt.
+whisper.cpp kéo qua FetchContent, PIN commit 307869af285d7f6f689ba100b3515e2d1b3feb05
+(SHA256 tarball 96a734e909ba97f4a413e16aa3abd21a9100f4ac5e95cd9b3ea6f4f4d27e836f).
+Model KHÔNG nhúng APK: đọc từ /sdcard/Android/data/vn.p0spike.p0_spike/files/models/.
+
+ĐÃ TEST (có bằng chứng):
+- flutter analyze -> No issues found
+- flutter test    -> All tests passed (1 smoke test UI)
+- whisper_jni.cpp -> biên dịch sạch bằng g++ host (JDK jni.h + stub android/log.h) đối chiếu
+  whisper.h thật => API/field dùng đúng
+- 3/3 symbol JNI Kotlin<->C++ khớp (Java_vn_p0spike_p0_1spike_WhisperNative_*)
+- Hợp đồng MethodChannel/EventChannel Dart<->Kotlin khớp (method + arg keys + event keys)
+CHƯA TEST (rủi ro còn lại):
+- Chưa từng build APK (máy dev thiếu Android SDK platform/build-tools/NDK)
+- Kotlin/Gradle chưa từng được biên dịch
+- Chưa chạy trên máy: mic, load model, transcript, route A2DP/SCO, TTS, foreground service
+
+------------------------------------------------------------------
+5. FILE ĐÃ TẠO TRONG PHIÊN
+------------------------------------------------------------------
+spikes/p0_audio/README.md, app/README.md, tools/{convert_phowhisper.sh,fetch_test_audio.py,
+normalize_audio.py,verify_models.py,verify_vosk.py}, reports/*.json (5), models/ (133MB)
+spikes/p0_audio/app/** (Flutter scaffold + code tự viết)
+.plan/P0-result.md (báo cáo phase, đúng định dạng mục 5 AGENT_INSTRUCTIONS.md)
+working.md, checklist.md, features.md, next.md, faq.md, LESSONS_LEARNED.md,
+handoff_20260921-1517.md, result_20260921-1517.txt (file này)
+Sửa .gitignore: bỏ qua model + android-sdk trong spike.
+
+------------------------------------------------------------------
+6. VIỆC TIẾP THEO (ngay)
+------------------------------------------------------------------
+1) Chốt đường build APK (GitHub Actions khi có repo, hoặc cài SDK/NDK tạm vào /tmp).
+2) Build + cài lên máy, push model qua adb, xác nhận app đọc được model.
+3) Chạy protocol Task 1-4 (xem .plan/P0-result.md), thu log:
+   adb logcat -s P0Spike:I P0SpikeJni:I
+4) Điền số liệu on-device + kết luận go/no-go (PhoWhisper hay Vosk cho P1C/P1D).
+5) Chỉ sau đó mới sang P0.5.
+
+------------------------------------------------------------------
+7. GHI CHÚ HẠ TẦNG
+------------------------------------------------------------------
+- AgentMemory (localhost:3111) KHÔNG phản hồi trong phiên này => không lưu được memory.
+- OCR (`ocr` CLI) chưa cài => bước review dùng phương án thủ công.
+- codebase-memory-mcp / cocoindex-code không có trong danh sách tool của phiên.
+- openspec v1.13.1: `openspec update` chạy OK (không drift), `openspec list` = no active changes.
+- Đĩa: /home chỉ còn ~396MB trống (repo) ; /tmp/p0spike ~52GB (sẽ mất khi reboot).
+- KHÔNG tự ý bật/tắt AgentMemory; không tự cài/cấu hình OCR.

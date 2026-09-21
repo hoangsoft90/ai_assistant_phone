@@ -1,0 +1,92 @@
+# working.md — nhật ký đang làm
+
+- [2026-09-21] **Regression F1 (user phát hiện):** `dispatchChunk` dùng `holder.sink` trên `EngineChannels` (không tồn tại → lỗi compile Kotlin, analyze Dart không bắt được vì K11). Đã sửa 2 chỗ → `pcmHolder.sink`, rà grep toàn file sạch, đối chiếu chéo kênh/payload Kotlin↔Dart, verify lại: analyze sạch + **41/41 test pass**. Bài học ghi ở `.plan/P1B-result.md` + `LESSONS_LEARNED.md`.
+- [2026-09-21] **Review code P1B + sửa F1–F5 (bổ sung sau P1B).** Phát hiện 6 vấn đề (2 🔴); user duyệt: F2 = watchdog 1.5s (không reset tức thì), sửa F1/F3/F4/F5, F6 để sau. Kết quả: F1 unregister sạch theo engine (map theo messenger, nhớ messenger service trong MainActivity), F2 watchdog `inputStalled` (⚠ Timer phải hẹn ngay trong `_publish` lúc vào khoá — test bắt được bug này), F3 `frameMs` từ `VadDetector` qua `VadResult` (xoá hằng hardcode), F4 HomeScreen sống theo sự kiện (status/errors/stats + dispose), F5 assert theo mốc onset. Verify: analyze sạch, **41/41 test pass**. Kotlin vẫn chưa từng biên dịch (K11/K14). Chi tiết: `.plan/P1B-result.md` mục "Bổ sung sau review".
+- [2026-09-21] **P1B (VAD + State tối giản) — CODE XONG, 0/4 mục DoD đạt (chưa đo được).**
+  Precondition không đạt (P1A `0/5 mục DoD`, chưa có APK/thiết bị) → hỏi và được **waive**.
+  - Đã làm: WebRTC VAD (`com.github.gkonovalov.android-vad:webrtc:2.0.10` qua JitPack) bọc trong
+    `VadDetector.kt` (16kHz, khung 320 mẫu = 20ms, VERY_AGGRESSIVE); VAD chạy **trên thread thu**
+    của P1A + kênh `com.aiassistant.phone/vad` (chỉ chạy khi có listener);
+    `ConversationStateMachine` (Dart) với **đúng 2 state** + bộ tích luỹ rò (300ms/1500ms/ratio 0.5),
+    `ValueNotifier` + `Stream changes/transitions` + `isUserSpeaking` cho P2, lịch sử trong phiên (≤500);
+    dòng `Hội thoại` trên màn hình chẩn đoán.
+  - **Giải quyết nợ K12**: không cần hạ `chunkMs` xuống 20–30ms — VAD tự chia khung 20ms ở native.
+  - Kiểm chứng: `flutter analyze` **No issues found**; `flutter test` **38/38 pass** (17 test mới);
+    **timeline hội thoại mẫu** in ra thật: `700ms: notUserSpeaking → userSpeaking` /
+    `5900ms: userSpeaking → notUserSpeaking`; đối chiếu API thư viện VAD bằng source thật + artifact
+    JitPack HTTP 200 trước khi pin version.
+  - **Chưa verify**: phản hồi <500ms với giọng thật, ngừng nói 1–2s, không flicker khi có nhạc/TV,
+    chạy 30 phút. **Mã Kotlin + dependency JitPack chưa từng được biên dịch** (nợ K14 🔴). Chưa commit.
+  - Báo cáo: **`.plan/P1B-result.md`**. Tài liệu module: `.project/modules/conversation-state.md`.
+
+- [2026-09-21] **P1A (Audio Capture Foundation, mic-only) — CODE XONG, 0/5 mục DoD đạt (chưa đo được).**
+  Precondition không đạt (P0.5 chưa verify, chưa có kết luận A2DP) → hỏi và được **waive**.
+  - Đã làm: `MicCaptureEngine` (Kotlin, `AudioRecord` + `AudioSource.MIC`, 16kHz mono PCM16, thread
+    `URGENT_AUDIO`), `CaptureChannelBridge` (kênh control + pcm, **1 engine dùng chung, sink riêng
+    từng FlutterEngine**), `AudioCaptureController` (Dart facade, broadcast stream), interface
+    `AudioCaptureEngine`/`CaptureClient`, `WavSink` (kiểm thử thủ công), UI bật/tắt capture kèm
+    rollback service khi mic lỗi. Capture chạy trong process do foreground service giữ; kênh **đã**
+    đăng ký cho engine của service qua `ForegroundService.addTaskLifecycleListener` để P1B dùng.
+  - Kiểm chứng: `flutter analyze` **No issues found**; `flutter test` **21/21 pass** (20 test mới:
+    lifecycle, chunk ngoài cửa sổ bị bỏ, map lỗi, onError 1-handler, dispose, hợp đồng kênh thật).
+  - Tự review Kotlin tìm & **sửa 2 lỗi thật**: `stop()` join chính thread đọc (treo 1.5s vô ích),
+    và `onCancel` xoá chung set sink làm mất listener của engine kia.
+  - **Chưa verify**: 60 phút nền, `dumpsys audio` HFP/SCO, rút tai nghe, nghe lại `.wav`, luồng từ
+    chối quyền trên UI — đều cần APK + máy thật. **Mã Kotlin chưa từng được biên dịch.** Chưa commit.
+  - Báo cáo: **`.plan/P1A-result.md`**. Tài liệu module: `.project/modules/audio-capture.md`.
+
+- [2026-09-21] Viết **baseline spec OpenSpec** cho toàn bộ code hiện có (theo yêu cầu user: chỉ viết
+  tài liệu, KHÔNG sửa code): 7 spec trong `openspec/specs/` — `app-bootstrap`,
+  `listening-foreground-service`, `runtime-permissions`, `audio-session-config`, `app-storage`,
+  `diagnostics-home-screen`, `app-core` (gộp logging+constants+smoke-test theo xác nhận của user).
+  Mỗi spec: Purpose + Requirements (PHẢI/MUST) + Scenario Given/When/Then kèm `file:line` + mục
+  **Cần làm rõ** (hành vi mơ hồ/dead code — không tự sửa). `openspec validate --specs` → **7 passed,
+  0 failed, 0 warning**. Đã chứng minh code nguyên vẹn: `flutter analyze` *No issues* + `flutter test`
+  *All tests passed* ngay sau khi viết spec. Tool MCP không có trong phiên ⇒ khảo sát bằng cách đọc
+  trực tiếp toàn bộ 10 file Dart/Kotlin (repo còn nhỏ) — thay thế tương đương về độ chính xác.
+
+- [2026-09-21] Tạo **knowledge base `.project/`** (13 file: README, overview, architecture, state-routing,
+  patterns, design-system, integrations, openspec, modules/{README + 4 module thực có}) + bộ file memory
+  ở gốc: `context.md`, `operating_rules.md`, `CLAUDE.md` (mới), và **điền phần `PROJECT` trong `AGENTS.md`**
+  (Role & Context / Navigation / 12 Critical Rules / Workflow / git convention — hết placeholder).
+  - Ghi rõ trạng thái thật: **chưa có tính năng sản phẩm nào**, không auth/backend/payment; APK chưa
+    từng build; repo **0 commit**. Nợ kỹ thuật K1–K10 nằm ở `.project/openspec.md` mục 3.
+  - Đã kiểm: 60 file `.md` → **0 link nội bộ hỏng**; `.project/` **không** bị gitignore.
+  - `openspec update` → *All 3 tool(s) up to date (v1.13.1)*, không drift; vẫn **0 change** đang mở.
+  - Hạ tầng phiên: AgentMemory (`localhost:3111/health`) **không phản hồi** ⇒ không lưu memory/ADR được
+    (không tự khởi động lại dịch vụ).
+
+- [2026-09-21] **P0.5 (Project Bootstrap) — XONG PHẦN LÀM ĐƯỢC, 2/5 mục DoD đạt, 3 mục còn lại chưa kiểm được.**
+  - **Precondition của P0.5 KHÔNG đạt** (P0 chưa có kết luận go/no-go; chưa biết A2DP hay HFP) → đã tự kiểm
+    bằng bằng chứng và báo mâu thuẫn; **chủ dự án chọn "waive precondition"** ⇒ rủi ro đã ghi rõ trong báo cáo.
+  - Đã làm: `flutter create` thật ở gốc repo (`com.aiassistant.phone`, minSdk 26, Android only); cấu trúc
+    `lib/{core,audio,transcript,suggestion,trigger,ui,services}` + README từng thư mục; manifest 7 quyền;
+    foreground service skeleton (`flutter_foreground_task` **11.0.3** — API khác hẳn bản prompt mô tả);
+    `audio_session` 0.2.4 (`usage=media`, cố ý không `voiceCommunication`) + lắng nghe `becomingNoisy`;
+    SQLite (sqflite) + secure storage cho API key; màn hình chính tối thiểu Sẵn sàng/Đang lắng nghe; lint 8 rule bổ sung.
+  - Kiểm thử thật: `flutter analyze` → *No issues found*; `flutter test` → *All tests passed*;
+    đọc trực tiếp source trong `~/.pub-cache` để đối chiếu API trước khi viết code.
+  - **Chưa kiểm được** (nên 3 mục DoD chưa tick): app build/cài chạy thật, FGS chạy nền không crash,
+    manifest build không lỗi — máy dev thiếu Android SDK, chưa có thiết bị. **Chưa commit** (repo vẫn 0 commit).
+  - Báo cáo: **`.plan/P0_5-result.md`**. Chi tiết build/chạy: `README.md` gốc repo.
+- [2026-09-21] **P0 (Audio Feasibility Spike) — CHƯA HOÀN THÀNH, dừng ở Precondition.**
+  - Lý do: P0 yêu cầu 1 điện thoại Android thật + 1 tai nghe Bluetooth + USB debug; máy dev hiện
+    `adb devices` rỗng, không có thiết bị nào. Toàn bộ 5 mục Definition of Done của P0 là đo đạc
+    trên máy thật nên chưa mục nào được tính là đạt.
+  - Đã làm phần không cần thiết bị: convert + quantize PhoWhisper base/tiny sang GGML q5_0,
+    tải model Vosk tiếng Việt (small + bản lớn), viết tooling (`spikes/p0_audio/tools/`), đo baseline
+    trên host bằng FLEURS có ground-truth, viết code app spike (Flutter + Kotlin + JNI whisper.cpp).
+  - Phát hiện đáng chú ý: Vosk model nhỏ trả về RỖNG khi audio nhỏ tiếng (đúng tình huống mic để xa);
+    quantize q5_0 gần như không mất chất lượng; PhoWhisper thắng Vosk rõ rệt (12-16% vs 40-53% WER).
+  - Báo cáo theo định dạng mục 5 của AGENT_INSTRUCTIONS.md: **`.plan/P0-result.md`** (quy ước: mỗi phase 1 file `<PHASE>-result.md`).
+  - Chi tiết + protocol test on-device: `spikes/p0_audio/README.md`.
+  - Chờ người dùng cắm điện thoại; sau đó chạy Task 1-4 của `prompt_P0.md` rồi mới có kết luận go/no-go.
+- [2026-09-21] Bổ sung bộ tài liệu điều phối ở gốc repo: `checklist.md` (đã/chưa/cần làm/cần hỏi),
+  `features.md` (tính năng hiện tại & tương lai), `next.md` (roadmap + việc sắp tới), `faq.md`
+  (thắc mắc/hiểu sai), `result_20260921-1517.txt` (kết quả phiên), `handoff_20260921-1517.md`
+  (bàn giao phiên sau — viết thủ công vì skill `handoff` chỉ user gọi được), `LESSONS_LEARNED.md`
+  (14 lỗi thật đã mắc + quy tắc chống tái phạm). Điền context dự án cho `openspec/config.yaml`
+  và chạy `openspec update` (v1.13.1, không drift).
+- [2026-09-21] Ghi chú hạ tầng: AgentMemory (`localhost:3111`) không phản hồi trong phiên này nên
+  không lưu được memory; `context.md` / `operating_rules.md` chưa tồn tại (nên tạo ở P0.5 khi có
+  khung app thật). OCR (`ocr` CLI) chưa được cài trên máy → bước review dùng cách đọc thủ công.

@@ -1,0 +1,28 @@
+# Cấu hình analyzer/lint.
+#
+# Nền: `flutter_lints` (bộ chuẩn của Flutter). Phần `rules` dưới đây bật thêm vài rule giữ code
+# sạch cho các phase sau — cố ý giữ danh sách NGẮN để không tạo tiếng ồn khi code.
+#
+# Chạy kiểm tra: flutter analyze  (DoD P0.5: lint sạch)
+
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+  language:
+    strict-casts: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    # Tránh API ngầm định/khó đọc khi đọc lại code ở phase sau.
+    always_declare_return_types: true
+    prefer_single_quotes: true
+    prefer_final_locals: true
+    unawaited_futures: true
+    avoid_print: true
+    # Bắt lỗi đóng tài nguyên (DB, stream) bị bỏ quên.
+    cancel_subscriptions: true
+    close_sinks: true

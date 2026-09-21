@@ -1,0 +1,16 @@
+# CI (GH Actions) build bằng gradlew trực tiếp → wrapper PHẢI nằm trong git.
+# Chỉ loại trừ file sinh cục bộ, không loại trừ wrapper.
+!gradle-wrapper.jar
+/.gradle
+/captures/
+!gradlew
+!gradlew.bat
+/local.properties
+GeneratedPluginRegistrant.java
+.cxx/
+
+# Remember to never publicly share your keystore.
+# See https://flutter.dev/to/reference-keystore
+key.properties
+**/*.keystore
+**/*.jks

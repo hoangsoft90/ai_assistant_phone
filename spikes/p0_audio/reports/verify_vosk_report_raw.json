@@ -1,0 +1,18 @@
+{
+  "model": "vosk-model-small-vn-0.4",
+  "model_load_s": 0.32,
+  "avg_wer_pct": 52.18,
+  "avg_rtf": 0.899,
+  "per_sample_wer_pct": [
+    52.9,
+    41.0,
+    40.6,
+    71.4,
+    12.9,
+    100.0,
+    38.9,
+    100.0,
+    40.0,
+    24.0
+  ]
+}

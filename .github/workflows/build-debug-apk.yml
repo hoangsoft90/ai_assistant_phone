@@ -1,0 +1,65 @@
+name: Build debug APK
+
+# Build APK debug bằng gradlew TRỰC TIẾP (không EAS, không token, không keystore — debug-signed).
+# Lý do chọn gradle trực tiếp thay `flutter build apk`: muốn thấy lỗi Gradle/NDK/Kotlin nguyên dạng
+# (K11/K14: toàn bộ Kotlin + dependency JitPack của P1B chưa từng được biên dịch).
+#
+# Bẫy đã xử lý (đọc trước khi sửa):
+# - settings.gradle.kts của Flutter REQUIRE `flutter.sdk` trong android/local.properties (file bị
+#   gitignore) → CI phải TỰ SINH file này trước khi gọi ./gradlew, và phải chạy `flutter pub get`
+#   trước để có package_config.json (pubspec.lock được commit).
+# - android/.gitignore mặc định ignore gradlew + gradle-wrapper.jar → đã un-ignore để wrapper lên git.
+# - JDK 17 (compileOptions của app), Flutter pin đúng version máy dev (3.47.2) để config build khớp.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter 3.47.2
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.2
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Analyze (không chặn build nếu có warning)
+        run: flutter analyze || true
+
+      - name: Sinh android/local.properties (flutter.sdk + sdk.dir)
+        run: |
+          {
+            echo "sdk.dir=${ANDROID_HOME}"
+            echo "flutter.sdk=${{ env.FLUTTER_ROOT }}"
+          } > android/local.properties
+          cat android/local.properties
+
+      - name: Build APK debug bằng gradlew trực tiếp
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Upload artifact APK debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30

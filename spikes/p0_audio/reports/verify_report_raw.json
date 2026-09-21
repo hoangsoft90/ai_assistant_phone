@@ -1,0 +1,78 @@
+{
+  "host_threads": 4,
+  "samples": 10,
+  "models": {
+    "ggml-phowhisper-base-f16.bin": {
+      "size_mb": 148.0,
+      "avg_wer_pct": 12.34,
+      "avg_rtf": 0.486,
+      "avg_latency_s_per_clip": 4.89,
+      "per_sample_wer_pct": [
+        11.8,
+        2.6,
+        6.2,
+        28.6,
+        6.5,
+        3.8,
+        16.7,
+        36.0,
+        3.3,
+        8.0
+      ]
+    },
+    "ggml-phowhisper-base-q5_0.bin": {
+      "size_mb": 55.3,
+      "avg_wer_pct": 12.35,
+      "avg_rtf": 0.543,
+      "avg_latency_s_per_clip": 5.45,
+      "per_sample_wer_pct": [
+        11.8,
+        2.6,
+        3.1,
+        28.6,
+        9.7,
+        3.8,
+        16.7,
+        36.0,
+        3.3,
+        8.0
+      ]
+    },
+    "ggml-phowhisper-tiny-f16.bin": {
+      "size_mb": 77.7,
+      "avg_wer_pct": 15.82,
+      "avg_rtf": 0.268,
+      "avg_latency_s_per_clip": 2.69,
+      "per_sample_wer_pct": [
+        17.6,
+        5.1,
+        9.4,
+        35.7,
+        6.5,
+        3.8,
+        16.7,
+        44.0,
+        3.3,
+        16.0
+      ]
+    },
+    "ggml-phowhisper-tiny-q5_0.bin": {
+      "size_mb": 29.9,
+      "avg_wer_pct": 15.52,
+      "avg_rtf": 0.297,
+      "avg_latency_s_per_clip": 2.97,
+      "per_sample_wer_pct": [
+        11.8,
+        2.6,
+        9.4,
+        35.7,
+        6.5,
+        0.0,
+        33.3,
+        40.0,
+        0.0,
+        16.0
+      ]
+    }
+  }
+}
