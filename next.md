@@ -4,7 +4,7 @@ Cập nhật: 2026-09-21 15:17 (+07). Nguồn: `.plan/production_roadmap.md`, `.
 
 ## Đang ở đâu
 
-- **Phase hiện tại: P0 — Audio Feasibility Spike.** Trạng thái: **dở dang, đang chặn ở Precondition** (cần điện thoại Android thật + tai nghe Bluetooth thật). Ước tính plan: 4–6 ngày.
+- **Phase hiện tại: hết P1D — chờ xác nhận của người dùng để sang P1E (Transcript Store).** P1C + P1D đã code xong; điều còn thiếu xuyên suốt là **một vòng đo trên máy thật** (P0/P0.5/P1A/P1B/P1C/P1D đều đang nợ DoD đo trên máy — gom thành K18/K19).
 - Nguyên tắc: đi tuần tự, không nhảy cóc; mỗi phase phải tự kiểm Precondition và tự đối chiếu Definition of Done **có bằng chứng** trước khi báo xong.
 
 ## Bảng phase & trạng thái
@@ -15,8 +15,8 @@ Cập nhật: 2026-09-21 15:17 (+07). Nguồn: `.plan/production_roadmap.md`, `.
 | 2 | **P0.5** Project Bootstrap (Flutter scaffold) | ⬜ chưa bắt đầu | Precondition: "P0 xác nhận ASR + audio routing khả thi" → **chưa đạt**. |
 | 3 | **P1A** Audio Capture Foundation (mic-only) | 🟡 **code xong, 0/5 mục DoD** (chưa build/đo trên máy) | Đã có `lib/audio/capture/` + 2 file Kotlin; kênh capture đã đăng ký cho cả engine UI lẫn engine service (P1B dùng được ngay). |
 | 4 | **P1B** VAD + State tối giản | 🟡 **code xong, 0/4 mục DoD** (chưa build/đo trên máy) | WebRTC VAD chạy trên thread thu; state machine 2 trạng thái; **ngưỡng chưa tinh chỉnh bằng giọng thật** (nợ K15) |
-| 5 | **P1C** ASR PhoWhisper (chính) | ⬜ | Chuẩn bị trước được: model GGML q5_0 đã convert xong + pipeline `tools/convert_phowhisper.sh`. |
-| 6 | **P1D** ASR Vosk (dự phòng) + abstraction | ⬜ | Model Vosk đã tải sẵn. |
+| 5 | **P1C** ASR PhoWhisper (chính) | 🟡 **code xong, native compile XANH** (run #7); 0/4 DoD máy thật | Engine + JNI + model 29MB trong APK. Nợ K18 (đo máy thật). |
+| 6 | **P1D** ASR Vosk (dự phòng) + abstraction | 🟡 **code xong** (`82f91d2`, CI run mới); 2/4 DoD đạt | Vosk streaming + `AsrEngineSelector` (đổi engine qua config, fallback tự động). **PhoWhisper là mặc định tạm thời** — xem `lib/audio/asr/README.md`. Nợ K19 (đo máy thật), K20 (JNA), K21 (kích thước/RAM). |
 | 7 | **P1E** Transcript Store | ⬜ | |
 | 8 | **P1F** TTS Output Safety Layer (A2DP-only) | ⬜ | Phase an toàn quan trọng nhất; cần đủ 3 test case bắt buộc. |
 | 9 | **P1G** Emergency Phrase (local) | ⬜ | |

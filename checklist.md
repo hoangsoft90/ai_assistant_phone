@@ -99,6 +99,26 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [ ] Permission flow trên UI thật: từ chối quyền → không crash + có hướng dẫn.
 - [ ] **Mã Kotlin chưa từng được biên dịch** — rủi ro build đầu tiên (nợ K11, nay gồm cả P1B).
 
+### Thuộc P1C (DoD chưa xác minh — cần APK + máy thật)
+
+- [ ] **PhoWhisper chạy trong app thật** (code xong, chờ run #4 CI compile native lần đầu + cài máy thật).
+- [ ] **Độ trễ mỗi chunk đo được** — kênh đo đã có sẵn trong code (log `latencyMs/audioMs` mỗi chunk).
+- [ ] **Pin 30–45 phút đo được**.
+- [ ] **Quyết PhoWhisper/Vosk làm mặc định** — thuộc P1D, phải dựa số on-device (số host: PhoWhisper 12–16% WER thắng Vosk 41–52%, nhưng RTF 0.29–0.53 có thể chậm trên CPU điện thoại).
+- [x] **K17 — ĐÓNG:** C/C++ + Kotlin ASR đã compile & link thành công (CI run #7, commit `10eeb5a`).
+
+### Thuộc P1D (đã làm / chưa xác minh)
+
+- [x] **VoskAsrEngine đúng interface** — test hợp đồng dùng chung cho cả 2 engine (`test/asr_engine_contract_test.dart`).
+- [x] **Đổi engine qua config, không sửa tầng trên** — `AsrEngineSelector` + test (9 test) + dropdown trên màn hình chính.
+- [x] **Quyết định engine mặc định bằng văn bản** — `lib/audio/asr/README.md` (PhoWhisper mặc định, **tạm thời**).
+- [x] **Fallback tự động** khi `init()` lỗi (prompt ghi "tuỳ chọn") + test khoá hành vi.
+- [ ] **Bảng so sánh 2 engine trong app thật** (DoD P1D) — cần APK + máy thật (K19).
+- [ ] **Vosk chạy ≥45 phút liên tục** (DoD P1D) — cần máy thật (K19).
+- [ ] **K20 (🟠):** JNA có nạp được `libjnidispatch.so` trên máy thật không — đã bật `useLegacyPackaging` + proguard keep rules; xác nhận bằng logcat `VoskBridge`.
+- [ ] **K21 (🟠):** APK +32MB (model Vosk) + ~51MB giải nén lần đầu trong `filesDir`; RAM khi nạp model chưa đo — ảnh hưởng trực tiếp quyết định engine mặc định.
+- [ ] **Quyết PhoWhisper/Vosk là mặc định** — hiện chọn PhoWhisper theo số host P0 (WER 16.6% vs 52.2%), cần xác nhận bằng RTF/pin trên máy (K18/K19).
+
 ### Thuộc P1B (DoD chưa xác minh — cần APK + máy thật)
 
 - [ ] Nói to gần mic → `userSpeaking` trong <500ms (đo bằng giọng thật).

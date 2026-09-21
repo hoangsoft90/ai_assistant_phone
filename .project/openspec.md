@@ -32,8 +32,8 @@ dự kiến là P1A/P1B.
 | **P0.5** | Project Bootstrap | 🟡 **xong phần làm được; 2/5 mục DoD đạt**, 3 mục còn lại chưa xác minh (cần build + máy thật) |
 | **P1A** | Audio Capture Foundation (mic-only) | 🟡 code xong (5 file Dart + 2 file Kotlin, 21 test pass) — **0/5 mục DoD** vì chưa build/đo trên máy |
 | **P1B** | VAD + State tối giản | 🟡 code xong (3 file Dart + 1 file Kotlin, 38 test pass) — **0/4 mục DoD** vì chưa build/đo trên máy |
-| P1C | ASR PhoWhisper (chính) | ⬜ — model GGML đã convert sẵn |
-| P1D | ASR Vosk (dự phòng) + abstraction | ⬜ — model đã tải sẵn |
+| P1C | ASR PhoWhisper (chính) | 🟡 code xong + native compile XANH (CI run #7); 0/4 DoD máy thật — nợ K18 |
+| P1D | ASR Vosk (dự phòng) + abstraction | 🟡 code xong (`82f91d2`), CI XANH (run 35612601371); 2/4 DoD đạt — nợ K19/K20/K21 |
 | P1E | Transcript Store | ⬜ — khung SQLite đã có |
 | P1F | TTS Output Safety Layer (A2DP-only) | ⬜ — **phase an toàn quan trọng nhất** |
 | P1G | Emergency Phrase (local) | ⬜ |
