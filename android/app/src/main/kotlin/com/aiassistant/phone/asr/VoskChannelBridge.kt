@@ -347,7 +347,7 @@ object VoskChannelBridge {
                                                 "audioMs" to audioMs,
                                                 "dropped" to dropped,
                                             )
-                                            invokeOnMain(messenger) {
+                                            invokeOnMain {
                                                 channel.invokeMethod("transcript", payload)
                                             }
                                         }
@@ -405,7 +405,14 @@ object VoskChannelBridge {
         }
     }
 
-    private fun invokeOnMain(messenger: BinaryMessenger, invoke: () -> Unit) {
+    /**
+     * Chạy [invoke] trên main thread (nơi `invokeMethod` của MethodChannel bắt buộc phải chạy).
+     *
+     * Trước đây hàm này có thêm tham số `messenger` nhưng KHÔNG hề dùng tới — đã bỏ (dead param,
+     * cùng loại với F5 của review P1D). Đây cũng là chỗ làm CI fail 1 lần: gọi hàm thiếu tham số
+     * chỉ lộ khi Kotlin được compile (máy dev không compile được Kotlin).
+     */
+    private fun invokeOnMain(invoke: () -> Unit) {
         android.os.Handler(android.os.Looper.getMainLooper()).post(invoke)
     }
 }

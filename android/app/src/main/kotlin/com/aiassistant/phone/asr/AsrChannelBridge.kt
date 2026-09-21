@@ -184,7 +184,7 @@ object AsrChannelBridge {
                                                 "audioMs" to audioMs,
                                                 "dropped" to dropped,
                                             )
-                                            mainInvoke(messenger) { channel.invokeMethod("transcript", payload) }
+                                            mainInvoke { channel.invokeMethod("transcript", payload) }
                                         }
                                     }
                                     engine?.load(path)
@@ -246,8 +246,14 @@ object AsrChannelBridge {
         }
     }
 
-    private fun mainInvoke(messenger: BinaryMessenger, invoke: () -> Unit) {
-        // invokeMethod phải chạy trên main thread — dùng Handler qua handler của main looper.
+    /**
+     * Chạy [invoke] trên main thread (nơi `invokeMethod` của MethodChannel bắt buộc phải chạy).
+     *
+     * Trước đây hàm này có thêm tham số `messenger` nhưng KHÔNG hề dùng tới — đã bỏ (dead param,
+     * cùng loại với F5 của review P1D). Đây cũng là chỗ làm CI fail 1 lần: gọi hàm thiếu tham số
+     * chỉ lộ khi Kotlin được compile (máy dev không compile được Kotlin).
+     */
+    private fun mainInvoke(invoke: () -> Unit) {
         android.os.Handler(android.os.Looper.getMainLooper()).post(invoke)
     }
 }
