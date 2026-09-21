@@ -10,6 +10,9 @@ name: Build debug APK
 #   trước để có package_config.json (pubspec.lock được commit).
 # - android/.gitignore mặc định ignore gradlew + gradle-wrapper.jar → đã un-ignore để wrapper lên git.
 # - JDK 17 (compileOptions của app), Flutter pin đúng version máy dev (3.47.2) để config build khớp.
+# - P1D: model Vosk (32MB) KHÔNG được commit vào git (máy dev chỉ còn ~150MB đĩa). CI tải về trước
+#   khi build, có kiểm SHA256 — sai hash thì FAIL NGAY, không để APK chứa model hỏng.
+#   Muốn build local: chạy đúng lệnh ở step "Tải model Vosk" bên dưới trước khi gọi flutter build.
 
 on:
   push:
@@ -41,6 +44,24 @@ jobs:
 
       - name: Analyze (không chặn build nếu có warning)
         run: flutter analyze || true
+
+      - name: Tải model Vosk + kiểm SHA256 (P1D)
+        run: |
+          set -euo pipefail
+          # Đích là ANDROID asset (không phải asset khai báo trong pubspec — xem pubspec.yaml mục
+          # `assets:` để biết lý do) và được đóng thẳng vào APK.
+          DEST="android/app/src/main/assets/models"
+          mkdir -p "$DEST"
+          URL="https://alphacephei.com/vosk/models/vosk-model-small-vn-0.4.zip"
+          EXPECTED="efe5c8494212110471a79befc48c79da679e5b1fc52a4ffb500222ff86d622e5"
+          curl -sSL --retry 3 --retry-delay 2 "$URL" -o "$DEST/vosk-model-small-vn-0.4.zip"
+          ACTUAL=$(sha256sum "$DEST/vosk-model-small-vn-0.4.zip" | awk '{print $1}')
+          echo "sha256: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::SHA256 model Vosk không khớp (mong đợi $EXPECTED)"
+            exit 1
+          fi
+          ls -l "$DEST"
 
       - name: Sinh android/local.properties (flutter.sdk + sdk.dir)
         run: |

@@ -25,4 +25,10 @@ abstract class AsrEngine {
 
   /// Giải phóng model + mọi tài nguyên. Sau khi gọi, KHÔNG dùng engine này nữa.
   Future<void> dispose();
+
+  /// Số chunk đã bị BỎ (không xử lý) vì engine không theo kịp thời gian thực.
+  ///
+  /// KHÔNG thuộc hợp đồng bắt buộc — đây là số đo phục vụ DoD (P1C/P1D) và UI chẩn đoán; engine
+  /// nào không đo được thì để mặc định 0. Cả hai engine hiện có đều đã override getter này.
+  int get droppedTotal => 0;
 }

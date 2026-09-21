@@ -45,6 +45,10 @@ xcuserdata/
 Thumbs.db
 # P0 spike: model ASR là artifact sinh ra (~150MB), không commit vào git
 /spikes/p0_audio/models/
+
+# P1D: model Vosk được workflow CI tải về lúc build (có kiểm SHA256) — không commit
+# (máy dev chỉ còn ~150MB đĩa). Model PhoWhisper thì ĐÃ commit vì là artifact convert thủ công ở P0.
+android/app/src/main/assets/models/*.zip
 /spikes/**/android-sdk/
 *.log
 .env

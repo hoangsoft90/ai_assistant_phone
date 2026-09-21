@@ -96,6 +96,17 @@ flutter:
   assets:
     - assets/models/ggml-phowhisper-tiny-q5_0.bin
 
+    # P1D — KHÔNG khai báo model Vosk ở đây (khác model PhoWhisper ở trên), CÓ CHỦ Ý:
+    # - Model Vosk (zip 32MB) không commit vào git (máy dev chỉ còn ~150MB đĩa) nên file không có
+    #   ở máy dev; mà asset khai báo trong pubspec MÀ THIẾU FILE thì `flutter test` fail ngay
+    #   ("Failed to build asset bundle") — đã thử thực tế.
+    # - Vosk đọc model qua Kotlin bằng AssetManager (tự giải nén từ zip), Dart không cần đọc bytes
+    #   của asset này, nên dùng Android asset là đủ: kotlin đọc `models/vosk-model-small-vn-0.4.zip`.
+    # - CI tải model vào android/app/src/main/assets/models/ (có kiểm SHA256) trước khi build;
+    #   xem .github/workflows/build-debug-apk.yml và lib/audio/asr/README.md.
+
+  
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

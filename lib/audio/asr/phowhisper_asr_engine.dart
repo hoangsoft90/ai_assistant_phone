@@ -72,6 +72,7 @@ class PhoWhisperAsrEngine implements AsrEngine {
   Stream<String> get transcriptStream => _transcripts.stream;
 
   /// Số chunk bị bỏ kể từ khi bắt đầu (để đo "bỏ sót transcript" ở DoD P1C).
+  @override
   int get droppedTotal => _droppedTotal;
 
   /// Số byte PCM đang gom trong accumulator (chưa đủ 1 chunk) — để UI/debug.

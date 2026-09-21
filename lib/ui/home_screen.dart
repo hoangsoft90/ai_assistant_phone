@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../audio/asr/asr_engine.dart';
+import '../audio/asr/asr_engine_selector.dart';
 import '../audio/capture/audio_capture_controller.dart';
 import '../audio/capture/capture_config.dart';
 import '../audio/vad/conversation_state.dart';
@@ -12,6 +15,7 @@ import '../core/constants.dart';
 import '../services/foreground_service.dart';
 import '../services/permission_gate.dart';
 import '../services/storage/app_database.dart';
+import '../services/storage/meta_store.dart';
 import '../services/storage/secure_store.dart';
 
 /// Màn hình chính tối thiểu của P0.5.
@@ -57,11 +61,25 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _snackQueueBusy = false;
   final List<String> _snackQueue = <String>[];
 
+  /// P1D: chọn engine ASR qua cấu hình (bảng `meta` của SQLite) — đổi engine KHÔNG cần build lại,
+  /// và tầng trên (P1E/P2) chỉ nhận `AsrEngine` nên không bị ảnh hưởng khi đổi.
+  final AsrEngineSelector _asrSelector = AsrEngineSelector(const MetaConfigStore());
+
+  AsrEngine? _asr;
+  AsrEngineKind _asrKind = AsrEngineSelector.defaultKind;
+  StreamSubscription<Uint8List>? _asrChunkSub;
+  StreamSubscription<String>? _asrTranscriptSub;
+  Timer? _asrTicker;
+  String _lastTranscript = '(chưa có)';
+  int _asrAudioBytes = 0;
+  bool _asrBusy = false;
+
   @override
   void initState() {
     super.initState();
     _refreshStatus();
     _listenInfrastructure();
+    unawaited(_loadAsrConfig());
   }
 
   /// Đăng ký mọi nguồn sự kiện hạ tầng (F4). Mỗi nguồn bọc riêng: một mảnh lỗi không cản mảnh
@@ -81,6 +99,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // Capture chết ⇒ VAD cũng hết dữ liệu. Watchdog của state machine sẽ mở khoá; tại đây
       // dừng nghe VAD để UI thể hiện đúng "chưa nghe" thay vì treo state cũ.
       _conversation.stop();
+      // P1D: mic chết thì ASR cũng hết dữ liệu — dừng luôn để không giữ model trong RAM vô ích.
+      unawaited(_stopAsr());
       if (mounted) {
         setState(() {});
       }
@@ -97,8 +117,116 @@ class _HomeScreenState extends State<HomeScreen> {
     _captureStatusSub?.cancel();
     _captureErrorSub?.cancel();
     _vadStatSub?.cancel();
+    _asrChunkSub?.cancel();
+    _asrTranscriptSub?.cancel();
+    _asrTicker?.cancel();
+    unawaited(_asr?.dispose());
     _vadTick.dispose();
     super.dispose();
+  }
+
+  /// Đọc engine đã chọn trong cấu hình để hiện lên UI (không tự bật ASR — đọc lúc mở màn hình).
+  Future<void> _loadAsrConfig() async {
+    AsrEngineKind kind;
+    try {
+      kind = await _asrSelector.readConfigured();
+    } catch (error) {
+      _log.warn('không đọc được cấu hình engine ASR: $error');
+      kind = AsrEngineSelector.defaultKind;
+    }
+    if (mounted) {
+      setState(() => _asrKind = kind);
+    }
+  }
+
+  /// Đổi engine ASR (P1D task 2/3): ghi cấu hình rồi khởi động lại ASR nếu đang chạy. Không cần
+  /// build lại app và không đụng tới code tầng trên.
+  Future<void> _selectAsrEngine(AsrEngineKind? kind) async {
+    if (kind == null || kind == _asrKind) {
+      return;
+    }
+    setState(() => _asrKind = kind);
+    try {
+      await _asrSelector.writeConfigured(kind);
+    } catch (error) {
+      _log.warn('không ghi được cấu hình engine ASR: $error');
+      _enqueueSnack('Không lưu được lựa chọn engine: $error');
+    }
+    final bool wasRunning = _asr != null;
+    if (wasRunning) {
+      await _stopAsr();
+      await _startAsr(); // Chạy lại bằng engine vừa chọn để so sánh ngay trên máy.
+    }
+  }
+
+  /// Bật ASR với engine đang cấu hình: tạo + init engine, rồi feed chunk PCM của capture vào.
+  /// Có fallback tự động sang engine còn lại nếu init lỗi (xem `AsrEngineSelector`).
+  Future<void> _startAsr() async {
+    if (_asr != null) {
+      return;
+    }
+    setState(() => _asrBusy = true);
+    try {
+      final AsrEngine engine = await _asrSelector.createAndInit();
+      _asr = engine;
+      _asrAudioBytes = 0;
+      _lastTranscript = '(chưa có)';
+      _asrTranscriptSub = engine.transcriptStream.listen((String text) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => _lastTranscript = text);
+      }, onError: (Object error) => _log.warn('stream transcript ASR lỗi: $error'));
+      _asrChunkSub = _capture.chunks.listen((Uint8List chunk) {
+        final AsrEngine? current = _asr;
+        if (current != null) {
+          unawaited(_feedAsr(current, chunk));
+        }
+      }, onError: (Object error) => _log.warn('stream chunk ASR lỗi: $error'));
+      // Nhịp 1s chỉ để dòng trạng thái nhích theo (số giây audio đã đưa vào engine) — đây là số liệu
+      // cần cho bảng so sánh 2 engine trên máy thật (DoD P1D).
+      _asrTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted && _asr != null) {
+          setState(() {});
+        }
+      });
+      _log.info('ASR đã bật: ${_asrKind.id}');
+    } catch (error, stackTrace) {
+      _log.error('không bật được ASR', error, stackTrace);
+      _enqueueSnack('Không bật được ASR: $error');
+      await _stopAsr();
+    } finally {
+      if (mounted) {
+        setState(() => _asrBusy = false);
+      }
+    }
+  }
+
+  Future<void> _feedAsr(AsrEngine engine, Uint8List chunk) async {
+    _asrAudioBytes += chunk.length;
+    try {
+      await engine.feedAudioChunk(chunk);
+    } catch (error) {
+      _log.warn('feed ASR lỗi: $error');
+    }
+  }
+
+  Future<void> _stopAsr() async {
+    _asrTicker?.cancel();
+    _asrTicker = null;
+    await _asrChunkSub?.cancel();
+    _asrChunkSub = null;
+    await _asrTranscriptSub?.cancel();
+    _asrTranscriptSub = null;
+    final AsrEngine? engine = _asr;
+    _asr = null;
+    if (engine != null) {
+      await engine.dispose();
+      _log.info('ASR đã tắt (${_asrKind.id})');
+    }
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   /// Hàng đợi SnackBar: mọi lỗi/tiến trình đi qua đây để không tự ý gọi `context` sau khi
@@ -179,7 +307,9 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _busy = true);
     try {
       if (_serviceRunning) {
-        // Thứ tự tắt: VAD -> capture -> service (nhả dần từ trong ra ngoài).
+        // Thứ tự tắt: ASR -> VAD -> capture -> service (nhả dần từ trong ra ngoài; model ASR nặng
+        // nhất nên giải phóng trước).
+        await _stopAsr();
         await _conversation.stop();
         await _capture.stop();
         await ListeningService.stop();
@@ -191,6 +321,7 @@ class _HomeScreenState extends State<HomeScreen> {
         } else {
           await _capture.start();
           _conversation.start(); // P1B: nghe VAD trên cùng luồng thu
+          await _startAsr(); // P1D: ASR chạy trên cùng luồng chunk PCM
           _enqueueSnack('Đang lắng nghe');
         }
       }
@@ -234,6 +365,34 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _busy ? null : _refreshStatus,
             child: const Text('Làm mới trạng thái'),
           ),
+          const SizedBox(height: 16),
+          // P1D: chọn engine nhận dạng ngay trên máy — ghi vào cấu hình (bảng `meta`), không cần
+          // build lại app. Đổi engine khi đang chạy sẽ tự khởi động lại để so sánh trực tiếp.
+          DropdownButtonFormField<AsrEngineKind>(
+            key: ValueKey<AsrEngineKind>(_asrKind),
+            initialValue: _asrKind,
+            decoration: const InputDecoration(
+              labelText: 'Engine nhận dạng (ASR)',
+              border: OutlineInputBorder(),
+            ),
+            items: AsrEngineKind.values
+                .map((AsrEngineKind kind) => DropdownMenuItem<AsrEngineKind>(
+                      value: kind,
+                      child: Text(kind.label),
+                    ))
+                .toList(),
+            onChanged: _busy ? null : _selectAsrEngine,
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: (_busy || _asrBusy)
+                ? null
+                : (_asr == null ? _startAsr : _stopAsr),
+            icon: Icon(_asr == null
+                ? Icons.record_voice_over_outlined
+                : Icons.stop_circle_outlined),
+            label: Text(_asr == null ? 'Bật nhận dạng (ASR)' : 'Tắt nhận dạng (ASR)'),
+          ),
           const SizedBox(height: 24),
           _statusCard(),
         ],
@@ -276,6 +435,8 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (BuildContext context, int _, Widget? _) =>
                   _infoRow('Hội thoại', _conversationText()),
             ),
+            _infoRow('ASR', _asrText()),
+            _infoRow('Nhận dạng', _lastTranscript),
             _infoRow('Lưu trữ', _databaseStatus),
             _infoRow('API key LLM', _hasApiKey == null ? 'lỗi đọc' : (_hasApiKey! ? 'đã lưu' : 'chưa có')),
           ],
@@ -293,6 +454,21 @@ class _HomeScreenState extends State<HomeScreen> {
     final String label = _conversation.isUserSpeaking ? 'USER_SPEAKING' : 'NOT_USER_SPEAKING';
     final double? ratio = _conversation.lastStat?.speechRatio;
     return ratio == null ? label : '$label · tỉ lệ nói ${ratio.toStringAsFixed(2)}';
+  }
+
+  /// Trạng thái ASR (P1D). Hiện thẳng số liệu cần cho việc so sánh 2 engine trên máy thật (số giây
+  /// audio đã đưa vào engine, số chunk bị bỏ) để không phải đọc logcat mới biết engine có theo kịp
+  /// thời gian thực hay không.
+  String _asrText() {
+    final AsrEngine? engine = _asr;
+    if (engine == null) {
+      return 'chưa chạy · engine đã chọn: ${_asrKind.label}';
+    }
+    // PCM16 mono 16kHz = 32000 byte/giây.
+    final String seconds = (_asrAudioBytes / 32000).toStringAsFixed(1);
+    final int dropped = engine.droppedTotal;
+    return '${_asrKind.label} · đang chạy · ${seconds}s audio'
+        '${dropped > 0 ? " · bỏ $dropped chunk" : ""}';
   }
 
   /// Trạng thái capture cho màn hình chẩn đoán (P1A) — đọc đồng bộ từ controller; widget tự vẽ

@@ -1,6 +1,7 @@
 package com.aiassistant.phone
 
 import com.aiassistant.phone.asr.AsrChannelBridge
+import com.aiassistant.phone.asr.VoskChannelBridge
 import com.aiassistant.phone.audio.CaptureChannelBridge
 import com.pravera.flutter_foreground_task.FlutterForegroundTaskLifecycleListener
 import com.pravera.flutter_foreground_task.FlutterForegroundTaskStarter
@@ -38,6 +39,8 @@ class MainActivity : FlutterActivity() {
       CaptureChannelBridge.register(engine.dartExecutor.binaryMessenger, applicationContext)
       // P1C: kênh ASR cho isolate của service (P2 sẽ chạy ASR trong service engine).
       AsrChannelBridge.register(engine.dartExecutor.binaryMessenger, applicationContext)
+      // P1D: kênh ASR dự phòng (Vosk) — cùng lý do trên.
+      VoskChannelBridge.register(engine.dartExecutor.binaryMessenger, applicationContext)
     }
 
     override fun onTaskStart(starter: FlutterForegroundTaskStarter) = Unit
@@ -51,6 +54,7 @@ class MainActivity : FlutterActivity() {
       serviceEngineMessenger?.let {
         CaptureChannelBridge.unregister(it)
         AsrChannelBridge.unregister(it)
+        VoskChannelBridge.unregister(it)
       }
       serviceEngineMessenger = null
     }
@@ -62,6 +66,8 @@ class MainActivity : FlutterActivity() {
     CaptureChannelBridge.register(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
     // P1C: kênh ASR cho engine UI (loadModel/feed từ Dart).
     AsrChannelBridge.register(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
+    // P1D: kênh ASR dự phòng (Vosk) cho engine UI.
+    VoskChannelBridge.register(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
     // Engine của service: cho phép isolate nền subscribe chunk PCM (P1B dùng để chạy VAD).
     ForegroundService.addTaskLifecycleListener(captureEngineListener)
   }
@@ -70,6 +76,7 @@ class MainActivity : FlutterActivity() {
     // Engine UI bị hủy cùng Activity: gỡ kênh trước khi super phá engine (F1).
     CaptureChannelBridge.unregister(flutterEngine.dartExecutor.binaryMessenger)
     AsrChannelBridge.unregister(flutterEngine.dartExecutor.binaryMessenger)
+    VoskChannelBridge.unregister(flutterEngine.dartExecutor.binaryMessenger)
     super.cleanUpFlutterEngine(flutterEngine)
   }
 }
