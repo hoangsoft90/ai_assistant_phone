@@ -203,6 +203,20 @@ object AsrChannelBridge {
         Log.i(TAG, "đã đăng ký kênh ASR")
     }
 
+    /**
+     * Gỡ handler kênh ASR của một engine (đối xứng F1 của capture).
+     * Gọi khi engine Flutter sắp bị destroy — nếu không, callback `transcript` sẽ được invoke
+     * vào messenger của engine đã chết, và engine Dart-side sẽ không đăng ký lại được sạch.
+     */
+    @Synchronized
+    fun unregister(messenger: BinaryMessenger) {
+        if (registered.remove(messenger)) {
+            val channel = MethodChannel(messenger, ASR_CHANNEL)
+            channel.setMethodCallHandler(null)
+            Log.i(TAG, "đã gỡ kênh ASR cho engine")
+        }
+    }
+
     private fun mainInvoke(messenger: BinaryMessenger, invoke: () -> Unit) {
         // invokeMethod phải chạy trên main thread — dùng Handler qua handler của main looper.
         android.os.Handler(android.os.Looper.getMainLooper()).post(invoke)

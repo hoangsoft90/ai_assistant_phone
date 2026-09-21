@@ -48,7 +48,10 @@ class MainActivity : FlutterActivity() {
 
     override fun onEngineWillDestroy() {
       // Engine service sắp bị plugin destroy: gỡ sạch kênh của đúng engine đó (F1).
-      serviceEngineMessenger?.let { CaptureChannelBridge.unregister(it) }
+      serviceEngineMessenger?.let {
+        CaptureChannelBridge.unregister(it)
+        AsrChannelBridge.unregister(it)
+      }
       serviceEngineMessenger = null
     }
   }
@@ -66,6 +69,7 @@ class MainActivity : FlutterActivity() {
   override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
     // Engine UI bị hủy cùng Activity: gỡ kênh trước khi super phá engine (F1).
     CaptureChannelBridge.unregister(flutterEngine.dartExecutor.binaryMessenger)
+    AsrChannelBridge.unregister(flutterEngine.dartExecutor.binaryMessenger)
     super.cleanUpFlutterEngine(flutterEngine)
   }
 }
