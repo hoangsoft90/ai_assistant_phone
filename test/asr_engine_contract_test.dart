@@ -77,6 +77,17 @@ class _FakeChannel {
   }
 }
 
+/// Stub kênh trả lời `loadModel` **chậm** — để test timeout init (F3) mà không cần native.
+void _slowLoadChannel(String name, Duration delay) {
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(MethodChannel(name), (MethodCall call) async {
+    if (call.method == 'loadModel') {
+      await Future<void>.delayed(delay);
+    }
+    return null;
+  });
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -233,6 +244,60 @@ void main() {
       await vosk.feedAudioChunk(Uint8List(0));
       expect(_active!.feedCalls, 0);
       await vosk.dispose();
+    });
+  });
+
+  // Review P1D: F3 (chống treo vô hạn khi native không trả lời) + F4 (không mất câu cuối khi tắt).
+  group('review P1D — F3 timeout init + F4 flush khi dispose', () {
+    tearDown(() {
+      for (final String name in <String>[AsrChannels.control, VoskChannels.control]) {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(MethodChannel(name), null);
+      }
+    });
+
+    test('F3: PhoWhisper init() ném StateError khi loadModel quá hạn', () async {
+      _slowLoadChannel(AsrChannels.control, const Duration(milliseconds: 300));
+      final PhoWhisperAsrEngine engine = PhoWhisperAsrEngine(
+        config: const PhoWhisperConfig(initTimeout: Duration(milliseconds: 30)),
+      );
+      await expectLater(engine.init(), throwsA(isA<StateError>()));
+    });
+
+    test('F3: Vosk init() ném StateError khi loadModel quá hạn', () async {
+      _slowLoadChannel(VoskChannels.control, const Duration(milliseconds: 300));
+      final VoskAsrEngine engine = VoskAsrEngine(
+        config: const VoskConfig(initTimeout: Duration(milliseconds: 30)),
+      );
+      await expectLater(engine.init(), throwsA(isA<StateError>()));
+    });
+
+    test('F4: text flush trong releaseModel vẫn tới listener trước khi dispose đóng stream',
+        () async {
+      final VoskAsrEngine engine = VoskAsrEngine();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel(VoskChannels.control),
+              (MethodCall call) async {
+        if (call.method == 'releaseModel') {
+          // Mô phỏng native: flush câu đang nói dở rồi mới trả kết quả cho Dart.
+          await engine.debugHandleNativeCall(
+            const MethodCall('transcript', <String, Object?>{
+              'text': 'câu cuối',
+              'latencyMs': 5,
+              'audioMs': 1000,
+              'dropped': 0,
+            }),
+          );
+        }
+        return null;
+      });
+
+      await engine.init();
+      final List<String> received = <String>[];
+      final StreamSubscription<String> sub = engine.transcriptStream.listen(received.add);
+      await engine.dispose();
+      expect(received, <String>['câu cuối']);
+      await sub.cancel();
     });
   });
 

@@ -50,38 +50,51 @@ class VoskStreamingEngine(
     private val pending = LinkedBlockingQueue<ShortArray>(maxQueuedChunks.coerceAtLeast(1))
     private val dropped = AtomicInteger(0)
 
+    /** Bảo vệ các field vòng đời (model/recognizer/worker/generation) khi nạp/giải phóng từ thread khác. */
+    private val lifecycleLock = Any()
+
     private var model: Model? = null
     private var recognizer: Recognizer? = null
     private var worker: Thread? = null
 
     @Volatile
-    private var closed = false
+    private var closed = true
 
+    /**
+     * Số "thế hệ" — tăng ở MỌI lần nạp/giải phóng. Worker giữ số của mình lúc start; thấy số đổi
+     * là tự thoát. Nhờ vậy worker cũ KHÔNG thể "sống lại" sau một lần `release()` bị kẹt (lỗi F2 của
+     * review P1D: nếu chỉ dựa vào `closed`, `load()` đặt lại `closed = false` sẽ làm thread cũ chạy
+     * tiếp và dùng chung recognizer với thread mới — Vosk native không thread-safe).
+     */
+    @Volatile
+    private var generation = 0
+
+    @Volatile
     private var audioMs = 0L
 
     val isLoaded: Boolean get() = recognizer != null
 
-    /** Số chunk đã bỏ vì không theo kịp thời gian thực (để đo ở DoD P1D). */
-    val droppedTotal: Int get() = dropped.get()
-
-    /** Độ dài audio đã nhận (ms) — dùng để đối chiếu với thời gian chạy thật khi đo RTF. */
-    val audioMsTotal: Long get() = audioMs
-
-    /** Số chunk đang chờ xử lý — chỉ số sức khoẻ của hàng đợi (xem logcat khi máy quá chậm). */
-    val pendingChunks: Int get() = pending.size
-
     /**
      * Nạp model từ **thư mục** (Vosk C API không đọc được zip/asset trực tiếp — xem
      * [unpackModelIfNeeded]). Ném IOException nếu model sai/thiếu file.
+     *
+     * LÀ VIỆC NẶNG (có thể vài giây) — bridge gọi hàm này từ thread riêng, không phải main thread
+     * (lỗi F1 của review P1D).
      */
     fun load(modelDir: String) {
         release()
-        closed = false
         LibVosk.setLogLevel(LogLevel.WARNINGS)
         val loadedModel = Model(modelDir)
-        model = loadedModel
-        recognizer = Recognizer(loadedModel, SAMPLE_RATE_HZ.toFloat())
-        worker = Thread({ consume() }, "vosk-asr").also { it.start() }
+        val loadedRecognizer = Recognizer(loadedModel, SAMPLE_RATE_HZ.toFloat())
+        synchronized(lifecycleLock) {
+            model = loadedModel
+            recognizer = loadedRecognizer
+            closed = false
+            generation++
+            val myGeneration = generation
+            // Truyền recognizer RIÊNG của thread này vào: worker không bao giờ chạm recognizer mới.
+            worker = Thread({ consume(loadedRecognizer, myGeneration) }, "vosk-asr").also { it.start() }
+        }
         Log.i(TAG, "model Vosk đã load: $modelDir")
     }
 
@@ -104,25 +117,27 @@ class VoskStreamingEngine(
         }
     }
 
-    private fun consume() {
-        while (!closed) {
+    /** Còn là worker hiện hành không (chưa bị đóng VÀ chưa bị thế hệ mới thay). */
+    private fun isCurrent(myGeneration: Int): Boolean = !closed && myGeneration == generation
+
+    private fun consume(rec: Recognizer, myGeneration: Int) {
+        while (isCurrent(myGeneration)) {
             val chunk: ShortArray = try {
                 pending.poll(100, TimeUnit.MILLISECONDS)
             } catch (interrupted: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return
             } ?: continue
-            if (closed) {
+            if (!isCurrent(myGeneration)) {
                 return
             }
-            val current = recognizer ?: continue
             try {
                 val started = System.currentTimeMillis()
                 audioMs += chunk.size * 1000L / SAMPLE_RATE_HZ
-                val endpointReached = current.acceptWaveForm(chunk, chunk.size)
+                val endpointReached = rec.acceptWaveForm(chunk, chunk.size)
                 if (endpointReached) {
                     // `result` chỉ có nghĩa khi acceptWaveForm trả true (hết một câu).
-                    val text = extractText(current.result)
+                    val text = extractText(rec.result)
                     if (text.isNotEmpty()) {
                         onResult(
                             text,
@@ -145,36 +160,67 @@ class VoskStreamingEngine(
         ""
     }
 
-    /** Giải phóng model + thread. An toàn khi gọi nhiều lần. */
+    /**
+     * Giải phóng model + thread. An toàn khi gọi nhiều lần.
+     *
+     * Flush (F4 của review): audio đã nhận nhưng chưa tới endpoint VẪN được nhận dạng nốt bằng
+     * `getFinalResult()` trước khi đóng — nếu không thì tắt ASR giữa câu sẽ mất đúng câu đang nói.
+     * Flush là best-effort: khi worker chưa dừng thì bỏ qua (không đụng native đang chạy).
+     */
     fun release() {
-        closed = true
-        worker?.let { thread ->
+        val thread: Thread?
+        synchronized(lifecycleLock) {
+            closed = true
+            generation++ // Vô hiệu hoá worker hiện tại, kể cả khi nó đang kẹt trong acceptWaveForm.
+            thread = worker
+            worker = null
+        }
+        if (thread != null) {
             try {
                 thread.join(5000)
             } catch (interrupted: InterruptedException) {
                 Thread.currentThread().interrupt()
             }
             if (thread.isAlive) {
-                // Vẫn đang chạy inference: KHÔNG đóng native (đóng khi đang gọi native có thể crash
-                // tiến trình) — chấp nhận giữ lại tới khi tiến trình chết, và báo rõ trong log.
-                Log.e(TAG, "thread Vosk chưa dừng sau 5s — bỏ qua việc đóng model (tránh crash native)")
+                // Vẫn đang chạy inference: KHÔNG flush/đóng native (đóng khi đang gọi native có thể
+                // crash tiến trình). Chấp nhận giữ lại tới khi tiến trình chết, và báo rõ trong log.
+                Log.e(TAG, "thread Vosk chưa dừng sau 5s — bỏ qua flush + đóng model (tránh crash native)")
+                pending.clear()
                 return
             }
         }
-        worker = null
-        pending.clear()
-        try {
-            recognizer?.close()
-        } catch (t: Throwable) {
-            Log.w(TAG, "đóng recognizer lỗi: ${t.message}")
+        val current: Recognizer? = synchronized(lifecycleLock) {
+            val rec = recognizer
+            recognizer = null
+            rec
+        }
+        if (current != null) {
+            try {
+                val started = System.currentTimeMillis()
+                val text = extractText(current.finalResult)
+                if (text.isNotEmpty()) {
+                    onResult(text, System.currentTimeMillis() - started, audioMs, dropped.get())
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "flush kết quả cuối lỗi: ${t.message}")
+            }
+            try {
+                current.close()
+            } catch (t: Throwable) {
+                Log.w(TAG, "đóng recognizer lỗi: ${t.message}")
+            }
+        }
+        val loadedModel = synchronized(lifecycleLock) {
+            val m = model
+            model = null
+            m
         }
         try {
-            model?.close()
+            loadedModel?.close()
         } catch (t: Throwable) {
             Log.w(TAG, "đóng model lỗi: ${t.message}")
         }
-        recognizer = null
-        model = null
+        pending.clear()
         audioMs = 0L
         dropped.set(0)
     }
@@ -259,6 +305,18 @@ object VoskChannelBridge {
     private val registered = mutableSetOf<BinaryMessenger>()
     private var engine: VoskStreamingEngine? = null
 
+    /**
+     * Thread riêng cho các việc NẶNG: giải nén model (51MB) + nạp/giải phóng model Vosk.
+     *
+     * Handler của MethodChannel chạy trên main (platform) thread — làm việc nặng ở đó sẽ treo UI và
+     * có thể vào vùng ANR 5s ở lần nạp đầu (lỗi F1 của review P1D). Một thread đơn cũng giúp các lần
+     * nạp/giải phóng không chạy chồng lên nhau.
+     */
+    private val loader: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "vosk-loader")
+        }
+
     @Synchronized
     fun register(messenger: BinaryMessenger, context: Context) {
         if (!registered.add(messenger)) {
@@ -275,25 +333,35 @@ object VoskChannelBridge {
                         val asset = call.argument<String>("asset")
                             ?: throw IllegalArgumentException("thiếu asset")
                         val maxQueue = call.argument<Number>("maxQueue")?.toInt() ?: 25
-                        synchronized(this) {
-                            val dir = unpackModelIfNeeded(appContext, asset)
-                            if (engine?.isLoaded != true) {
-                                engine?.close()
-                                engine = VoskStreamingEngine(maxQueue) { text, latencyMs, audioMs, dropped ->
-                                    val payload = mapOf(
-                                        "text" to text,
-                                        "latencyMs" to latencyMs,
-                                        "audioMs" to audioMs,
-                                        "dropped" to dropped,
-                                    )
-                                    invokeOnMain(messenger) {
-                                        channel.invokeMethod("transcript", payload)
+                        // Giải nén + nạp model ở thread riêng; chỉ trả kết quả về main thread.
+                        loader.execute {
+                            try {
+                                val dir = unpackModelIfNeeded(appContext, asset)
+                                synchronized(this) {
+                                    if (engine?.isLoaded != true) {
+                                        engine?.close()
+                                        engine = VoskStreamingEngine(maxQueue) { text, latencyMs, audioMs, dropped ->
+                                            val payload = mapOf(
+                                                "text" to text,
+                                                "latencyMs" to latencyMs,
+                                                "audioMs" to audioMs,
+                                                "dropped" to dropped,
+                                            )
+                                            invokeOnMain(messenger) {
+                                                channel.invokeMethod("transcript", payload)
+                                            }
+                                        }
                                     }
+                                    engine?.load(dir.path)
+                                }
+                                invokeOnMain { result.success(null) }
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "loadModel lỗi", t)
+                                invokeOnMain {
+                                    result.error("VOSK_FAILED", t.message, t.javaClass.simpleName)
                                 }
                             }
-                            engine?.load(dir.path)
                         }
-                        result.success(null)
                     }
                     "feed" -> {
                         val pcm = call.argument<ByteArray>("pcm16")
@@ -302,11 +370,21 @@ object VoskChannelBridge {
                         result.success(null)
                     }
                     "releaseModel" -> {
-                        synchronized(this) {
-                            engine?.close()
-                            engine = null
+                        // `close()` có flush kết quả cuối (F4) → vẫn là việc nặng, chạy ở thread riêng.
+                        loader.execute {
+                            try {
+                                synchronized(this) {
+                                    engine?.close()
+                                    engine = null
+                                }
+                                invokeOnMain { result.success(null) }
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "releaseModel lỗi", t)
+                                invokeOnMain {
+                                    result.error("VOSK_FAILED", t.message, t.javaClass.simpleName)
+                                }
+                            }
                         }
-                        result.success(null)
                     }
                     else -> result.notImplemented()
                 }

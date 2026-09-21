@@ -22,6 +22,7 @@ class VoskConfig {
   const VoskConfig({
     this.modelAssetPath = 'models/vosk-model-small-vn-0.4.zip',
     this.maxQueuedChunks = 25,
+    this.initTimeout = const Duration(seconds: 60),
   });
 
   /// Đường dẫn **Android asset** (trong APK dưới `assets/`) tới file `.zip` của model — Kotlin mở
@@ -32,6 +33,10 @@ class VoskConfig {
   /// Số chunk tối đa chờ trong hàng đợi (25 × 100ms = 2.5s audio). Đầy thì chunk CŨ NHẤT bị bỏ
   /// (kèm đếm) — xem `VoskStreamingEngine` phía Kotlin.
   final int maxQueuedChunks;
+
+  /// Hạn chót cho lời gọi `loadModel` (F3 của review P1D). Rộng rãi vì lần đầu phải **giải nén
+  /// 51MB** model; mục đích là cắt lần treo vô hạn để selector còn chạy fallback.
+  final Duration initTimeout;
 
   static const VoskConfig defaults = VoskConfig();
 }
@@ -86,10 +91,17 @@ class VoskAsrEngine implements AsrEngine {
     }
     // Asset (.zip) do Kotlin giải nén ra thư mục — Dart không cần copy model như PhoWhisper
     // (Vosk nhận cả asset vì Kotlin tự mở AssetManager), nên không cần đọc rootBundle ở đây.
-    await _channel.invokeMethod<void>('loadModel', <String, Object?>{
-      'asset': config.modelAssetPath,
-      'maxQueue': config.maxQueuedChunks,
-    });
+    await _channel
+        .invokeMethod<void>('loadModel', <String, Object?>{
+          'asset': config.modelAssetPath,
+          'maxQueue': config.maxQueuedChunks,
+        })
+        .timeout(
+          config.initTimeout,
+          onTimeout: () => throw StateError(
+            'Vosk: loadModel không phản hồi sau ${config.initTimeout.inSeconds}s',
+          ),
+        );
     _channel.setMethodCallHandler(_onNativeCall);
     _initialized = true;
     _log.info('Vosk sẵn sàng (${config.modelAssetPath}, '
@@ -160,7 +172,10 @@ class VoskAsrEngine implements AsrEngine {
       return;
     }
     _disposed = true;
-    await _transcripts.close();
+    // F4 của review P1D: native flush kết quả cuối (câu đang nói dở) trong `releaseModel`, nên phải
+    // gọi TRƯỚC khi đóng stream — nếu đóng trước, text cuối bị chặn ở `_applyResult` và người nghe
+    // mất đúng câu cuối. `add()` của broadcast controller phát đồng bộ cho listener hiện có, nên
+    // thứ tự releaseModel → close là đủ để không mất text.
     if (_initialized) {
       try {
         await _channel.invokeMethod<void>('releaseModel');
@@ -170,5 +185,6 @@ class VoskAsrEngine implements AsrEngine {
         _log.warn('kênh Vosk chưa có phía native khi dispose');
       }
     }
+    await _transcripts.close();
   }
 }

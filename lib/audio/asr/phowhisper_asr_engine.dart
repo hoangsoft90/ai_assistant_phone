@@ -25,6 +25,7 @@ class PhoWhisperConfig {
     this.chunkSeconds = 4,
     this.threads = 2,
     this.maxQueuedChunks = 1,
+    this.initTimeout = const Duration(seconds: 60),
   });
 
   /// Model được đóng gói trong APK (P0: tiny q5_0 = 29MB, WER 15.5% trên FLEURS-host).
@@ -32,6 +33,11 @@ class PhoWhisperConfig {
   final int chunkSeconds;
   final int threads;
   final int maxQueuedChunks;
+
+  /// Hạn chót cho lời gọi `loadModel` (F3 của review P1D). Rộng rãi — mục đích duy nhất là **cắt
+  /// một lần treo vô hạn** khi phía native không bao giờ trả lời: không có timeout thì
+  /// `AsrEngineSelector` không bao giờ chạy fallback và UI kẹt ở trạng thái bận mãi mãi.
+  final Duration initTimeout;
 
   static const PhoWhisperConfig defaults = PhoWhisperConfig();
 }
@@ -95,10 +101,17 @@ class PhoWhisperAsrEngine implements AsrEngine {
       _log.info(
           'đã copy model ra file: ${modelFile.path} (${asset.lengthInBytes ~/ 1048576}MB)');
     }
-    await _channel.invokeMethod<void>('loadModel', <String, Object?>{
-      'path': modelFile.path,
-      'threads': config.threads,
-    });
+    await _channel
+        .invokeMethod<void>('loadModel', <String, Object?>{
+          'path': modelFile.path,
+          'threads': config.threads,
+        })
+        .timeout(
+          config.initTimeout,
+          onTimeout: () => throw StateError(
+            'PhoWhisper: loadModel không phản hồi sau ${config.initTimeout.inSeconds}s',
+          ),
+        );
     _channel.setMethodCallHandler(_onNativeCall);
     _initialized = true;
     _log.info('PhoWhisper sẵn sàng (${config.modelAssetPath}, '

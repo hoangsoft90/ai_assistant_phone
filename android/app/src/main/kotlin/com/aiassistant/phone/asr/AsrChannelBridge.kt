@@ -146,6 +146,16 @@ object AsrChannelBridge {
     private val registered = mutableSetOf<BinaryMessenger>()
     private var engine: WhisperChunkEngine? = null
 
+    /**
+     * Thread riêng cho việc NẶNG: nạp/giải phóng model whisper.cpp (đọc + map 29MB model vào RAM).
+     * Handler MethodChannel chạy trên main thread — nạp model ở đó làm treo UI (lỗi F1 của review
+     * P1D, đã sửa cho cả 2 bridge để không còn chỗ nào vi phạm quy tắc trong SKILL.md).
+     */
+    private val loader: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "asr-loader")
+        }
+
     @Synchronized
     fun register(messenger: BinaryMessenger, context: Context) {
         if (!registered.add(messenger)) {
@@ -161,22 +171,32 @@ object AsrChannelBridge {
                         val path = call.argument<String>("path")
                             ?: throw IllegalArgumentException("thiếu path")
                         val threads = call.argument<Number>("threads")?.toInt() ?: 2
-                        synchronized(this) {
-                            if (engine?.isLoaded != true) {
-                                engine?.close()
-                                engine = WhisperChunkEngine(threads) { text, latencyMs, audioMs, dropped ->
-                                    val payload = mapOf(
-                                        "text" to text,
-                                        "latencyMs" to latencyMs,
-                                        "audioMs" to audioMs,
-                                        "dropped" to dropped,
-                                    )
-                                    mainInvoke(messenger) { channel.invokeMethod("transcript", payload) }
+                        // Nạp model ở thread riêng; chỉ trả kết quả về main thread.
+                        loader.execute {
+                            try {
+                                synchronized(this) {
+                                    if (engine?.isLoaded != true) {
+                                        engine?.close()
+                                        engine = WhisperChunkEngine(threads) { text, latencyMs, audioMs, dropped ->
+                                            val payload = mapOf(
+                                                "text" to text,
+                                                "latencyMs" to latencyMs,
+                                                "audioMs" to audioMs,
+                                                "dropped" to dropped,
+                                            )
+                                            mainInvoke(messenger) { channel.invokeMethod("transcript", payload) }
+                                        }
+                                    }
+                                    engine?.load(path)
+                                }
+                                mainInvoke { result.success(null) }
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "loadModel lỗi", t)
+                                mainInvoke {
+                                    result.error("ASR_FAILED", t.message, t.javaClass.simpleName)
                                 }
                             }
-                            engine?.load(path)
                         }
-                        result.success(null)
                     }
                     "feed" -> {
                         val pcm = call.argument<ByteArray>("pcm16")
@@ -187,11 +207,20 @@ object AsrChannelBridge {
                         result.success(null)
                     }
                     "releaseModel" -> {
-                        synchronized(this) {
-                            engine?.close()
-                            engine = null
+                        loader.execute {
+                            try {
+                                synchronized(this) {
+                                    engine?.close()
+                                    engine = null
+                                }
+                                mainInvoke { result.success(null) }
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "releaseModel lỗi", t)
+                                mainInvoke {
+                                    result.error("ASR_FAILED", t.message, t.javaClass.simpleName)
+                                }
+                            }
                         }
-                        result.success(null)
                     }
                     else -> result.notImplemented()
                 }
