@@ -47,7 +47,7 @@ class WhisperChunkEngine(
     private val dropped = AtomicInteger(0)
 
     /** Chunk chờ khi engine bận (tối đa 1 — chunk mới nhất thắng). */
-    private var pending: ShortArray? = null
+    private var pending: FloatArray? = null
 
     private var ctx = 0L
 
