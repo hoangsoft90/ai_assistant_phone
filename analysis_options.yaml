@@ -11,6 +11,7 @@ analyzer:
   exclude:
     - build/**
     - android/**
+    - spikes/**
   language:
     strict-casts: true
     strict-raw-types: true

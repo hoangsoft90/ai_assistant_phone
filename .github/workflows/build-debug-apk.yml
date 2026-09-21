@@ -75,6 +75,15 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
+          # Sưởi cache wrapper trước khi build: nếu tải distribution Gradle vấp lỗi HTTP thoáng
+          # qua từ services.gradle.org (run 35618380022: 504) thì thử lại tối đa 3 lần — bước này
+          # chỉ tải + cài distribution nên retry không tốn thời gian build thật.
+          for i in 1 2 3; do
+            ./gradlew --version && break
+            if [ "$i" = 3 ]; then exit 1; fi
+            echo "::warning::tải distribution Gradle lỗi (lần $i) — thử lại sau 15s"
+            sleep 15
+          done
           ./gradlew assembleDebug --stacktrace
 
       - name: Upload artifact APK debug
