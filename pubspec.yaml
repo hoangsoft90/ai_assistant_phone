@@ -54,7 +54,12 @@ dependencies:
 
   # Quyền runtime (mic + notification). Cần thật để foreground service type=microphone
   # chạy được trên Android 14+ và để notification hiện trên Android 13+.
-  permission_handler: ^13.0.2
+  # PIN 12.0.1 (không nâng lên 13/14): permission_handler_android 14.x đòi compileSdk 37, mà
+  # Flutter 3.47.2 + AGP 9.1.0 chỉ hỗ trợ tối đa compileSdk 36 → CI fail ở checkDebugAarMetadata
+  # (run #1: https://github.com/hoangsoft90/ai_assistant_phone/actions/runs/35600799560).
+  # Bản 12.x dùng permission_handler_android 13.x (compileSdk 35, Flutter >=3.24) — đủ cho nhu cầu
+  # runtime-permissions của app (RECORD_AUDIO + POST_NOTIFICATIONS). Xem lại khi nâng SDK/AGP.
+  permission_handler: 12.0.1
 
 dev_dependencies:
   flutter_test:
