@@ -141,7 +141,7 @@ class MicCaptureEngine(
     }
 
     thread = Thread({ loop(recorder) }, "ai-capture").also { it.start() }
-    Log.i(TAG, "bắt đầu thu: $_config (minBuffer=$minBufferBytes, frame=${config.frameBytes} byte)")
+    Log.i(TAG, "bắt đầu thu: $config (minBuffer=$minBufferBytes, frame=${config.frameBytes} byte)")
     return config
   }
 
