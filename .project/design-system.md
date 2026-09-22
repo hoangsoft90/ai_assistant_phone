@@ -33,6 +33,24 @@ theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal))
 **Typography hiện có:** chỉ dùng 1 token chuẩn là `Theme.of(context).textTheme.titleMedium` (tiêu đề
 trạng thái). Còn lại là `Text` mặc định hoặc style hardcode.
 
+### Launcher icon (2026-09-21)
+
+- **Concept do chính user chốt:** bong bóng hội thoại trắng + sóng âm 5 thanh teal trên nền gradient
+  teal ("nghe giọng nói → gợi ý câu nói"). Đây là **lần đầu user thực sự chọn màu** ⇒ teal không còn
+  là "mặc định tạm chưa ai chọn" (xem lại cảnh báo ở mục 5).
+- Sinh bằng script **tái tạo được**: `python3 tools/make_app_icon.py` (Pillow) — **không** sửa tay file PNG.
+- Đóng gói: **adaptive icon** `res/mipmap-anydpi-v26/{ic_launcher,ic_launcher_round}.xml`. Vì `minSdk 26`,
+  mọi máy đều đi nhánh này:
+  - `background` = `@mipmap/ic_launcher_background` (PNG gradient, xxxhdpi)
+  - `foreground` = `@mipmap/ic_launcher_foreground` (**nền trong suốt**, mdpi + xxxhdpi)
+
+  Foreground **phải trong suốt** — nếu đục thì launcher không áp được mặt nạ/parallax và layer
+  background thành file chết. Kèm PNG legacy đủ 5 dpi cho launcher cũ + `android:roundIcon` trong manifest.
+- **Ràng buộc hình học (dễ sai nhất):** vùng an toàn adaptive là **đường tròn 66dp** giữa canvas 108dp
+  ⇒ chi tiết phải nằm trong **bán kính 33dp** quanh tâm. Chóp đuôi bong bóng hiện cách tâm **30.2dp**;
+  vẽ lại thì **giữ < 33dp**, nếu không launcher mặt nạ tròn (Pixel/Samsung) sẽ cắt mất đuôi.
+- Bảng màu icon: gradient `#00796B → #26A69A` (giữa `#00897B`, tông teal-600), sóng âm `#00695C`, bong bóng trắng.
+
 ## 2. Shared widgets / component tái sử dụng
 
 **Hiện có: KHÔNG có widget dùng chung nào.** `_statusCard()` và `_infoRow()` là **private trong
@@ -73,4 +91,6 @@ Ràng buộc:
 - **Đừng copy style hardcode ở `home_screen.dart` sang file mới.** Nếu cần style mới, hỏi trước để
   làm luôn bước tạo token ở mục 4 (P3).
 - Khi nào chuẩn bị làm UI thật (P3), **phải hỏi người dùng** về màu chủ đạo/brand mong muốn — hiện
-  `Colors.teal` chỉ là mặc định tạm lúc bootstrap, chưa ai chọn.
+  `Colors.teal` chỉ là mặc định tạm lúc bootstrap. **Cập nhật 2026-09-21:** user đã chọn **teal** làm
+  tông cho launcher icon (mục 1, "Launcher icon") ⇒ coi teal là hướng đúng, nhưng **vẫn phải hỏi**
+  trước khi khoá thành token/brand chính thức ở P3.

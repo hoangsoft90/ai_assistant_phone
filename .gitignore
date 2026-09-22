@@ -54,3 +54,4 @@ android/app/src/main/assets/models/*.zip
 .env
 .env.*
 .freebuff/
+icon_preview.png
