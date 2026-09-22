@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../audio/asr/asr_engine.dart';
 import '../audio/asr/asr_engine_selector.dart';
+import '../audio/emergency/emergency_phrase_service.dart';
 import '../audio/tts/safe_tts_output.dart';
 import '../audio/tts/tts_client.dart';
 import '../transcript/transcript_store.dart';
@@ -76,6 +77,10 @@ class _HomeScreenState extends State<HomeScreen> {
   /// chỉ gọi nó để chạy 3 test case bắt buộc của P1F (nút thật của người dùng là P3).
   final SafeTtsOutput _safeTts = SafeTtsOutput.instance();
   StreamSubscription<TtsFallbackNotice>? _ttsFallbackSub;
+
+  /// P1G: câu thoát khẩn cấp — đường tắt 100% local, không qua LLM/network. Nút tạm dưới đây chỉ
+  /// để kiểm trên máy thật; gesture thật (giữ nút nổi 2 giây) là việc của P3.
+  final EmergencyPhraseService _emergency = EmergencyPhraseService();
 
   AsrEngine? _asr;
   AsrEngineKind _asrKind = AsrEngineSelector.defaultKind;
@@ -171,6 +176,20 @@ class _HomeScreenState extends State<HomeScreen> {
   /// P1F task 3: người dùng xác nhận tai nghe đã kết nối lại ổn định (P3 sẽ gắn vào floating button).
   Future<void> _confirmHeadset() async {
     await _safeTts.confirmHeadsetReady();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// P1G: kích hoạt Emergency Phrase (nút tạm — gesture thật là P3). Đường này KHÔNG qua LLM;
+  /// hành vi an toàn (không tai nghe ⇒ im lặng + rung) do `SafeTtsOutput` bảo đảm sẵn.
+  Future<void> _triggerEmergency() async {
+    final EmergencyTriggerResult result = await _emergency.triggerEmergency();
+    final Duration? latency = _emergency.lastTriggerToSynthLatency;
+    _log.info('emergency: $result · câu "${_emergency.lastPhrase}" · độ trễ ${latency?.inMilliseconds ?? "-"}ms');
+    if (latency != null) {
+      _enqueueSnack('Emergency: "${_emergency.lastPhrase}" · phát sau ${latency.inMilliseconds}ms');
+    }
     if (mounted) {
       setState(() {});
     }
@@ -523,6 +542,14 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.headset_outlined),
             label: const Text('Xác nhận tai nghe đã sẵn sàng (P1F)'),
           ),
+          // P1G: nút tạm để kiểm Emergency Phrase trên máy thật (gesture thật là P3). Không có
+          // dialog xác nhận nào — đường khẩn cấp phải phản hồi ngay lập tức.
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => unawaited(_triggerEmergency()),
+            icon: const Icon(Icons.emergency_outlined),
+            label: const Text('Emergency Phrase (P1G)'),
+          ),
+          const SizedBox(height: 8),
           const SizedBox(height: 24),
           _statusCard(),
         ],
@@ -567,6 +594,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _infoRow('ASR', _asrText()),
             _infoRow('TTS', _ttsText()),
+            _infoRow('Emergency', _emergencyText()),
             _infoRow('Nhận dạng', _lastTranscript),
             _infoRow('Transcript', _transcriptText()),
             _infoRow('Push gần nhất', _pushText()),
@@ -631,6 +659,17 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  /// Trạng thái Emergency Phrase (P1G) cho màn hình chẩn đoán: câu của lần trigger gần nhất +
+  /// độ trễ đo được (bằng chứng DoD P1G ngay trên máy, không cần logcat).
+  String _emergencyText() {
+    final String? phrase = _emergency.lastPhrase;
+    if (phrase == null) {
+      return 'chưa kích hoạt · câu kế tiếp: "${_emergency.nextPhrase}"';
+    }
+    final Duration? latency = _emergency.lastTriggerToSynthLatency;
+    return '"$phrase" · phát sau ${latency?.inMilliseconds ?? "?"}ms (chưa tính thời gian đọc)';
   }
 
   /// Trạng thái capture cho màn hình chẩn đoán (P1A) — đọc đồng bộ từ controller; widget tự vẽ

@@ -5,6 +5,7 @@
 // Logic thật (service, DB, quyền) phải được kiểm trên thiết bị — xem README.md ở gốc repo.
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show Scrollable;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ai_assistant_phone/main.dart';
@@ -45,7 +46,13 @@ void main() {
     expect(find.text('Trợ lý giao tiếp'), findsOneWidget);
     expect(find.text('Bật lắng nghe'), findsOneWidget);
     expect(find.text('Sẵn sàng'), findsOneWidget);
+    // Từ P1G màn hình có thêm nút Emergency + 1 dòng trạng thái ⇒ card trạng thái dài hơn viewport
+    // và ListView dựng lazily — phải CUỘN tới các dòng trạng thái thay vì giả định chúng hiển thị sẵn.
+    await tester.scrollUntilVisible(find.text('chưa ghi'), 120, scrollable: find.byType(Scrollable).first);
+    await tester.pump();
     expect(find.text('chưa ghi'), findsOneWidget); // trạng thái capture ban đầu (P1A)
+    await tester.scrollUntilVisible(find.text('chưa nghe'), 120, scrollable: find.byType(Scrollable).first);
+    await tester.pump();
     expect(find.text('chưa nghe'), findsOneWidget); // trạng thái VAD ban đầu (P1B)
   });
 }
