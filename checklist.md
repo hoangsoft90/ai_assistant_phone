@@ -62,6 +62,25 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [ ] ⚠ **4 mục DoD của P1B chưa đo được** (phản hồi <500ms với giọng thật, ngừng nói 1–2s, không flicker khi có nhạc/TV nền, chạy 30 phút) — cần APK + máy thật.
 - [ ] **Tinh chỉnh 3 ngưỡng bằng dữ liệu thật** rồi ghi lại giá trị chốt (nợ K15).
 
+### P1E — Transcript Store
+
+- [x] **Model `TranscriptSegment` đúng ràng buộc** — **chỉ** `text` + `timestamp`, không có trường
+  speaker/label (quyết định 4.2b); có comment nêu rõ lý do + ràng buộc xuyên phase.
+- [x] **Ghi dòng xuống SQLite ngay khi nhận** (không gom lô) ⇒ bị kill đột ngột không mất dữ liệu đã ghi.
+- [x] **Cửa sổ rolling trong RAM 8 phút**, đĩa giữ toàn bộ phiên; cửa sổ dài hơn thì đọc SQLite
+  (không cắt cụt âm thầm).
+- [x] **Schema SQLite v2 + migration `v1 → v2`** (3 bảng + 2 index) cho máy đã cài P0.5 — không xoá
+  DB người dùng.
+- [x] **Migration SQL kiểm bằng sqlite3 thật** (Python): trích thẳng 5 câu DDL từ `app_database.dart`,
+  chạy trên DB v1 giả → bảng/index đúng, dữ liệu `meta` cũ còn nguyên.
+- [x] **`markPushMoment(DateTime)`** ghi MỌI lần bấm (bảng riêng), `lastPushMoment` = mốc gần nhất.
+- [x] **API cho P2**: `recentWindow(window:)` → text thô không nhãn (`\n` giữa các dòng) + mốc Push.
+- [x] **Tự xoá sau 7 ngày** ở `init()` — xoá theo transaction 3 bảng (không để dòng mồ côi).
+- [x] **Nối vào app**: `main()` gọi `init()` (recovery + cleanup chạy cả khi người dùng chưa bật ASR);
+  `home_screen` attach/detach theo vòng đời ASR + dòng "Transcript"/"Push gần nhất" + nút Push tạm.
+- [x] **16 test mới (`test/transcript_store_test.dart`)** — gồm khôi phục phiên đang dở, phiên quá hạn,
+  hạn 7 ngày (kiểm cả mốc cutoff), thứ tự khi 3 dòng đến sát nhau, và **regression bug attach/detach**.
+
 ### Knowledge base & memory files (ngoài phạm vi DoD)
 
 - [x] Tạo `.project/` — 13 file: `README.md` (entry), `overview.md`, `architecture.md`, `state-routing.md`,
@@ -127,6 +146,17 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [x] **K25 — `init()` không có timeout:** nếu phía native không bao giờ trả lời `loadModel`, `AsrEngineSelector` không bao giờ chạy fallback và UI kẹt ở trạng thái bận.
 - [x] **K26 — mất câu đang nói dở khi tắt ASR:** Vosk không gọi `getFinalResult()` trong `dispose()` ⇒ audio từ endpoint cuối tới lúc tắt không được nhận dạng.
 
+### Thuộc P1E (DoD chưa xác minh — cần APK + máy thật)
+
+- [ ] **K27 (🔴):** crash recovery + hạn 7 ngày **trên máy thật** — quy trình `adb shell am kill` đã ghi
+  ở `lib/transcript/README.md` mục 5; unit test chỉ chứng minh *logic*, không chứng minh SQLite thật
+  (và migration v1→v2 trên máy đã cài P0.5) hoạt động.
+- [ ] **K28 (🟠) — cần người dùng chốt:** có chuyển sang **DB mã hoá (SQLCipher)** không? Đã kiểm tài
+  liệu: `sqflite` **không** hỗ trợ mã hoá, phải đổi sang `sqflite_sqlcipher`. Prompt P1E cho phép bỏ
+  qua ở phase này ⇒ hiện dữ liệu nằm trong sandbox app + tự xoá sau 7 ngày.
+- [ ] **Nhịp ghi đĩa chưa đo:** 1 INSERT + 1 UPDATE mỗi ~4s/chunk — chưa biết ảnh hưởng pin/I/O trên
+  máy thật thế nào (đo cùng lúc với K18/K19).
+
 ### Thuộc P1B (DoD chưa xác minh — cần APK + máy thật)
 
 - [ ] Nói to gần mic → `userSpeaking` trong <500ms (đo bằng giọng thật).
@@ -154,4 +184,5 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [ ] Khi có điện thoại: bạn tự thao tác phần tay (rút tai nghe giữa lúc TTS, chấm % từ đúng) hay muốn tôi hướng dẫn từng bước realtime?
 - [ ] Ổ đĩa `/home` chỉ còn ~396MB: có được phép xoá model f16/vosk-bản-lớn trong `/tmp/p0spike` (ngoài repo) để lấy chỗ build không?
 - [ ] `.plan/` đang bị gitignore → `.plan/P0_5-result.md` sẽ không vào git. Có muốn copy sang `docs/` không?
+- [ ] **K28 — transcript có cần mã hoá DB không?** (`sqflite` không hỗ trợ; phải đổi package sang `sqflite_sqlcipher` + chuyển dữ liệu cũ). Hiện dựa vào sandbox app + xoá sau 7 ngày.
 - [ ] Có cho phép tôi tạo skill từ `LESSONS_LEARNED.md` trong `~/.agents/skills/` không? (Theo `writing-skills`, cần chạy baseline test trước.)

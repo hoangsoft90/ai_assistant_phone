@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../audio/asr/asr_engine.dart';
 import '../audio/asr/asr_engine_selector.dart';
+import '../transcript/transcript_store.dart';
 import '../audio/capture/audio_capture_controller.dart';
 import '../audio/capture/capture_config.dart';
 import '../audio/vad/conversation_state.dart';
@@ -65,6 +66,10 @@ class _HomeScreenState extends State<HomeScreen> {
   /// và tầng trên (P1E/P2) chỉ nhận `AsrEngine` nên không bị ảnh hưởng khi đổi.
   final AsrEngineSelector _asrSelector = AsrEngineSelector(const MetaConfigStore());
 
+  /// P1E: kho transcript của phiên hiện tại. Lấy đúng instance mà `main()` đã `init()` lúc bootstrap
+  /// (nơi đã xoá dữ liệu cũ hơn 7 ngày + khôi phục phiên đang dở).
+  final TranscriptStore _transcript = TranscriptStore.instance();
+
   AsrEngine? _asr;
   AsrEngineKind _asrKind = AsrEngineSelector.defaultKind;
   StreamSubscription<Uint8List>? _asrChunkSub;
@@ -120,6 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _asrChunkSub?.cancel();
     _asrTranscriptSub?.cancel();
     _asrTicker?.cancel();
+    unawaited(_transcript.detach());
     unawaited(_asr?.dispose());
     _vadTick.dispose();
     super.dispose();
@@ -169,6 +175,8 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final AsrEngine engine = await _asrSelector.createAndInit();
       _asr = engine;
+      // P1E: mọi text engine phát ra đi thẳng vào transcript store (kèm timestamp) để P2 dùng.
+      _transcript.attach(engine);
       _asrAudioBytes = 0;
       _lastTranscript = '(chưa có)';
       _asrTranscriptSub = engine.transcriptStream.listen((String text) {
@@ -218,6 +226,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _asrChunkSub = null;
     await _asrTranscriptSub?.cancel();
     _asrTranscriptSub = null;
+    // P1E: ngắt khỏi store trước khi engine bị dispose (engine đổi ⇔ attach lại ở `_startAsr`).
+    await _transcript.detach();
     final AsrEngine? engine = _asr;
     _asr = null;
     if (engine != null) {
@@ -393,6 +403,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 : Icons.stop_circle_outlined),
             label: Text(_asr == null ? 'Bật nhận dạng (ASR)' : 'Tắt nhận dạng (ASR)'),
           ),
+          const SizedBox(height: 8),
+          // P1E: nút Push thật là việc của P3; nút này chỉ để kiểm API `markPushMoment` trên máy thật
+          // (mốc Push sẽ vào prompt LLM ở P2). Bấm khi transcript chưa mở thì vô hiệu.
+          OutlinedButton.icon(
+            onPressed: _transcript.sessionId == null ? null : () => unawaited(_markPush()),
+            icon: const Icon(Icons.flag_outlined),
+            label: const Text('Đánh dấu Push (P1E)'),
+          ),
           const SizedBox(height: 24),
           _statusCard(),
         ],
@@ -437,6 +455,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _infoRow('ASR', _asrText()),
             _infoRow('Nhận dạng', _lastTranscript),
+            _infoRow('Transcript', _transcriptText()),
+            _infoRow('Push gần nhất', _pushText()),
             _infoRow('Lưu trữ', _databaseStatus),
             _infoRow('API key LLM', _hasApiKey == null ? 'lỗi đọc' : (_hasApiKey! ? 'đã lưu' : 'chưa có')),
           ],
@@ -469,6 +489,35 @@ class _HomeScreenState extends State<HomeScreen> {
     final int dropped = engine.droppedTotal;
     return '${_asrKind.label} · đang chạy · ${seconds}s audio'
         '${dropped > 0 ? " · bỏ $dropped chunk" : ""}';
+  }
+
+  /// Trạng thái transcript (P1E) cho màn hình chẩn đoán: số dòng trong cửa sổ bộ nhớ + số dòng đã
+  /// **khôi phục** sau khi app bị OS kill. Đây chính là dữ liệu để kiểm DoD P1E trên máy thật mà
+  /// không phải đọc logcat (xem quy trình ở `lib/transcript/README.md`).
+  String _transcriptText() {
+    final int? sessionId = _transcript.sessionId;
+    if (sessionId == null) {
+      return 'chưa mở (xem log bootstrap)';
+    }
+    final StringBuffer buffer = StringBuffer('phiên #$sessionId');
+    buffer.write(' · RAM ${_transcript.memorySegmentCount} dòng');
+    if (_transcript.recoveredSegmentCount > 0) {
+      buffer.write(' · khôi phục ${_transcript.recoveredSegmentCount} dòng sau khi app bị kill');
+    }
+    return buffer.toString();
+  }
+
+  /// Mốc Push gần nhất (P1E) — P2 sẽ đưa mốc này vào prompt LLM.
+  String _pushText() {
+    final DateTime? moment = _transcript.lastPushMoment;
+    return moment == null ? 'chưa bấm' : moment.toIso8601String();
+  }
+
+  Future<void> _markPush() async {
+    await _transcript.markPushMoment(DateTime.now());
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   /// Trạng thái capture cho màn hình chẩn đoán (P1A) — đọc đồng bộ từ controller; widget tự vẽ

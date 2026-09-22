@@ -4,7 +4,9 @@
 |---|---|
 | `foreground_service.dart` | Bọc `flutter_foreground_task`: init, start/stop, `ListeningTaskHandler` (chạy ở isolate riêng). P0.5 chỉ giữ service sống + hiện notification. |
 | `permission_gate.dart` | Xin/kiểm tra quyền runtime (mic + notification) — điều kiện bắt buộc để service `type=microphone` chạy được trên Android 14+. |
-| `storage/app_database.dart` | Khung SQLite: mở DB, tạo bảng `meta`, chỗ để thêm migration ở P1E. |
+| `storage/app_database.dart` | Khung SQLite: mở DB, tạo bảng `meta`, và schema transcript (v2, P1E) — nhánh migration `v1 → v2` nằm ở đây. |
+| `storage/meta_store.dart` | `ConfigStore` (interface) + bản SQLite — cấu hình khoá–giá trị (P1D: engine ASR). |
+| `storage/transcript_dao.dart` | `TranscriptDao` (interface) + bản SQLite (P1E): phiên, dòng transcript, mốc Push, xoá theo hạn 7 ngày. |
 | `storage/secure_store.dart` | Lưu API key LLM bằng keystore hệ điều hành (`flutter_secure_storage`); dùng từ P2. |
 
 Ghi chú:

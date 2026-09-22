@@ -6,6 +6,7 @@ import 'core/app_logger.dart';
 import 'core/constants.dart';
 import 'services/foreground_service.dart';
 import 'services/storage/app_database.dart';
+import 'transcript/transcript_store.dart';
 import 'ui/home_screen.dart';
 
 Future<void> main() async {
@@ -27,6 +28,14 @@ Future<void> main() async {
     await AppDatabase.instance();
   } catch (error, stackTrace) {
     log.error('mở SQLite lỗi', error, stackTrace);
+  }
+  // P1E: mở kho transcript — xoá dữ liệu cũ hơn 7 ngày rồi khôi phục phiên đang dở (nếu app bị OS
+  // kill giữa chừng thì mở lại vẫn còn transcript đã ghi). Phải chạy ở bootstrap, không phải lúc
+  // người dùng bật ASR: việc khôi phục/hạn 7 ngày không được phụ thuộc vào thao tác của người dùng.
+  try {
+    await TranscriptStore.instance().init();
+  } catch (error, stackTrace) {
+    log.error('mở kho transcript lỗi', error, stackTrace);
   }
 
   log.info('bootstrap xong, khởi động UI');

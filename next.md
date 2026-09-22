@@ -4,7 +4,7 @@ Cập nhật: 2026-09-21 15:17 (+07). Nguồn: `.plan/production_roadmap.md`, `.
 
 ## Đang ở đâu
 
-- **Phase hiện tại: hết P1D — chờ xác nhận của người dùng để sang P1E (Transcript Store).** P1C + P1D đã code xong; điều còn thiếu xuyên suốt là **một vòng đo trên máy thật** (P0/P0.5/P1A/P1B/P1C/P1D đều đang nợ DoD đo trên máy — gom thành K18/K19).
+- **Phase hiện tại: hết P1E — chờ xác nhận của người dùng để sang P1F (TTS Output Safety Layer).** P1C–P1E đã code xong; điều còn thiếu xuyên suốt vẫn là **một vòng đo trên máy thật** (P0/P0.5/P1A/P1B/P1C/P1D/P1E đều nợ DoD đo trên máy — K18/K19/K27).
 - Nguyên tắc: đi tuần tự, không nhảy cóc; mỗi phase phải tự kiểm Precondition và tự đối chiếu Definition of Done **có bằng chứng** trước khi báo xong.
 
 ## Bảng phase & trạng thái
@@ -17,7 +17,7 @@ Cập nhật: 2026-09-21 15:17 (+07). Nguồn: `.plan/production_roadmap.md`, `.
 | 4 | **P1B** VAD + State tối giản | 🟡 **code xong, 0/4 mục DoD** (chưa build/đo trên máy) | WebRTC VAD chạy trên thread thu; state machine 2 trạng thái; **ngưỡng chưa tinh chỉnh bằng giọng thật** (nợ K15) |
 | 5 | **P1C** ASR PhoWhisper (chính) | 🟡 **code xong, native compile XANH** (run #7); 0/4 DoD máy thật | Engine + JNI + model 29MB trong APK. Nợ K18 (đo máy thật). |
 | 6 | **P1D** ASR Vosk (dự phòng) + abstraction | 🟡 **code xong** (`82f91d2`, CI run mới); 2/4 DoD đạt | Vosk streaming + `AsrEngineSelector` (đổi engine qua config, fallback tự động). **PhoWhisper là mặc định tạm thời** — xem `lib/audio/asr/README.md`. Nợ K19 (đo máy thật), K20 (JNA), K21 (kích thước/RAM). |
-| 7 | **P1E** Transcript Store | ⬜ | |
+| 7 | **P1E** Transcript Store | 🟡 **code xong** (2/4 DoD đạt) | SQLite v2 + migration; rolling 8 phút trong RAM, xoá sau 7 ngày, khôi phục phiên sau khi bị kill; API text thô không nhãn cho P2. Nợ K27 (đo máy thật), K28 (có mã hoá DB không?). |
 | 8 | **P1F** TTS Output Safety Layer (A2DP-only) | ⬜ | Phase an toàn quan trọng nhất; cần đủ 3 test case bắt buộc. |
 | 9 | **P1G** Emergency Phrase (local) | ⬜ | |
 | 10 | **P2** Suggestion Engine (LLM + Policy) | ⬜ | |
@@ -31,11 +31,15 @@ Tổng ước tính tới lúc dùng được (bỏ P6): **~9–11 tuần**.
 
 ## Đã hoàn thành
 
-- Không có phase nào hoàn thành.
+- Không có phase nào **hoàn thành trọn vẹn** (mọi phase đều thiếu vòng xác minh trên máy thật).
+- Code xong: P1A, P1B, P1C, P1D, P1E; P0/P0.5 xong phần không cần thiết bị.
 - Xong **phần chuẩn bị của P0** (không cần thiết bị): model PhoWhisper GGML tiny/base (f16 + q5_0), model Vosk small + lớn, 5 tool tái sử dụng được cho P1C/P1D, 5 file số liệu thô, code app spike 1129 dòng (analyze/test/JNI-syntax đều sạch), báo cáo `.plan/P0-result.md`.
 
 ## Việc sắp tới (theo thứ tự)
 
+0. **Tải APK mới nhất từ CI** → cài máy → chạy protocol: P1E (`am kill` + đổi ngày 8 ngày, xem
+   `lib/transcript/README.md` mục 5), P1D (so sánh 2 engine, 45 phút), P1B (ngưỡng VAD bằng giọng thật),
+   P1A/P0.5 (quyền, FGS, DB, `becomingNoisy`), P0 (A2DP/HFP). Đây là việc **chặn chất lượng** của cả 5 phase.
 1. **Chốt đường build — XONG 2026-09-21:** KHÔNG build tại máy dev (`/home` ~265MB free); đã push `main` lên `hoangsoft90/ai_assistant_phone`, workflow `build-debug-apk.yml` (gradlew trực tiếp) — run #1 đã trigger. Việc kế tiếp: xem kết quả run để đóng/mở nợ K11/K14; nếu fail → lấy log job theo skill `.agents/skills/ai-assistant-phone-debug-apk/SKILL.md`.
    · **Nợ kiểm chứng hiện đã chồng 4 lớp**: P0 (5 mục), P0.5 (3 mục), P1A (5 mục), P1B (4 mục) — tất cả đều chỉ vướng một việc duy nhất là *build APK + cầm máy thật*. Ưu tiên tuyệt đối: dựng được APK trước khi mở thêm phase. Riêng P1B còn có ngưỡng VAD **phải** tinh chỉnh bằng giọng thật ⇒ viết thêm code trước khi đo chỉ tạo ra ngưỡng "đúng trên giấy".
 2. **Build + cài APK** lên điện thoại, xác nhận app mở, xin quyền mic, đọc được model.

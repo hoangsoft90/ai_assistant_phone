@@ -1,6 +1,9 @@
 # openspec.md — Tiến độ, bug, todo (góc nhìn OpenSpec)
 
-Cập nhật: 2026-09-21 15:30 (+07).
+Cập nhật: 2026-09-21 (+07, sau P1E).
+
+> **Nguồn sự thật về nợ/DoD là `checklist.md`** — bảng ở mục 3 đây chỉ giữ các mục cũ + mục đang mở
+> mức cao; K17–K26 đã đóng và một số dòng cũ đã được dọn.
 
 ## 1. Trạng thái OpenSpec
 
@@ -34,7 +37,7 @@ dự kiến là P1A/P1B.
 | **P1B** | VAD + State tối giản | 🟡 code xong (3 file Dart + 1 file Kotlin, 38 test pass) — **0/4 mục DoD** vì chưa build/đo trên máy |
 | P1C | ASR PhoWhisper (chính) | 🟡 code xong + native compile XANH (CI run #7); 0/4 DoD máy thật — nợ K18 |
 | P1D | ASR Vosk (dự phòng) + abstraction | 🟡 code xong (`82f91d2`), CI XANH (run 35612601371); 2/4 DoD đạt — nợ K19/K20/K21 |
-| P1E | Transcript Store | ⬜ — khung SQLite đã có |
+| P1E | Transcript Store | 🟡 **code xong** (2/4 DoD đạt) — SQLite **v2 + migration** (3 bảng transcript), rolling 8 phút trong RAM, xoá sau 7 ngày, khôi phục phiên sau khi bị kill, API text thô không nhãn cho P2. Nợ K27 (đo máy thật), K28 (mã hoá DB?) |
 | P1F | TTS Output Safety Layer (A2DP-only) | ⬜ — **phase an toàn quan trọng nhất** |
 | P1G | Emergency Phrase (local) | ⬜ |
 | P2 | Suggestion Engine (LLM + Policy) | ⬜ |
@@ -69,16 +72,21 @@ dự kiến là P1A/P1B.
 | K15 | **3 ngưỡng VAD (300ms/1500ms/ratio 0.5) chưa tinh chỉnh bằng giọng nói thật** — mới là giá trị khởi đầu có lý giải | 🟠 vừa | `.project/modules/conversation-state.md` mục 4 |
 | K16 | **VAD chạy cùng thread thu** với việc copy chunk cho Dart — chưa xác nhận không gây drop mẫu khi CPU bận | 🟡 thấp | `.plan/P1B-result.md` mục Đề xuất |
 | K13 | **`permanentlyDenied` chưa có đường thoát** trong app (không `openAppSettings()`); P1A mới hiện hướng dẫn bằng chữ | 🟠 vừa | `.project/modules/audio-capture.md` mục 7 |
+| ~~K17, K22–K26~~ | ~~compile native lần đầu (K17) + 5 finding review P1D (K22 main-thread, K23 generation token, K24 getter chết, K25 thiếu timeout, K26 mất câu cuối)~~ → **đã đóng**: CI run #7 (native xanh) + commit `2c0ae82`/`e6f01ac` (CI `35617319912` xanh) | ✅ xong | `checklist.md` |
+| K18–K21 | **P1C/P1D chưa đo trên máy thật** (trễ chunk, pin 45′, JNA `libjnidispatch.so`, RAM/kích thước model, bảng so sánh 2 engine) | 🔴 cao | `lib/audio/asr/README.md`, `checklist.md` |
+| **K27** | **P1E: crash recovery + hạn 7 ngày + migration v1→v2 CHƯA chạy trên máy thật** — unit test chỉ chứng minh logic; SQL mới kiểm bằng sqlite3 offline | 🔴 cao | `.plan/P1E-result.md`, `lib/transcript/README.md` mục 5 |
+| **K28** | **Transcript chưa được mã hoá**: `sqflite` không hỗ trợ, muốn mã hoá phải đổi sang `sqflite_sqlcipher` (+ chuyển dữ liệu cũ). Hiện dựa vào sandbox app + xoá sau 7 ngày | 🟠 vừa | `lib/transcript/README.md` mục 4 |
 
 ## 4. Todo ngay tiếp theo (thứ tự)
 
-1. **Chốt đường build APK**: GitHub Actions (chờ repo) hoặc cài Android SDK/NDK tạm vào `/tmp`.
-2. **Build APK + cài lên điện thoại** → xác minh 3 mục DoD còn lại của P0.5 (K4).
-3. Chạy 4 bước kiểm tra nhanh ở `README.md` (gốc repo).
-4. Chạy protocol P0 Task 1→4 trên máy thật bằng app spike → giải quyết **K1, K2, K3**.
-5. Điền số liệu vào DoD, viết kết luận go/no-go.
-6. Quyết định số phận `spikes/p0_audio/` (**K6**).
-7. Tạo `context.md`/`operating_rules.md` (đã xong ở phiên này) + OpenSpec change đầu tiên cho P1A.
+1. **Tải APK debug mới nhất từ CI → cài máy thật → chạy 1 vòng protocol đo** cho **tất cả** phase
+   đang nợ: P1E (`am kill` + đổi ngày 8 ngày), P1D (2 engine, 45′), P1B (ngưỡng VAD bằng giọng thật),
+   P1A/P0.5 (quyền, FGS, DB, `becomingNoisy`), P0 (A2DP/HFP). Đây là điểm chặn chất lượng của 5 phase.
+2. Vá ngưỡng/logic theo số liệu máy thật (VAD K15, engine mặc định K3/K18, Vosk K20/K21).
+3. Chốt **K28** (có mã hoá DB transcript không) trước khi phát hành cho người khác dùng.
+4. Quyết định số phận `spikes/p0_audio/` (**K6**).
+5. Cân nhắc tạo OpenSpec change chính thức cho các capability đã code (baseline specs hiện chỉ có từ
+   P0.5 — `openspec/specs/` thiếu P1A–P1E; xem mục 1 và `checklist.md`).
 
 ## 5. Việc cần hỏi người dùng (đang treo)
 
@@ -87,11 +95,15 @@ dự kiến là P1A/P1B.
 - [ ] Xoá hay giữ `spikes/p0_audio/`?
 - [ ] Cho phép xoá model f16/vosk-bản-lớn trong `/tmp/p0spike` để lấy chỗ build?
 - [ ] `.plan/` bị gitignore → có copy báo cáo phase sang thư mục được commit không?
+- [ ] **K28:** transcript có cần DB mã hoá (SQLCipher) không?
 - [ ] Cho phép tạo skill từ `LESSONS_LEARNED.md` không?
 
 ## 6. Trạng thái git
 
-- **Repo hiện có 0 commit** (`git log` → *"does not have any commits yet"*). Mọi thứ đang là untracked.
-- Hệ quả: `git diff` rỗng, `detect_changes`/impact review không dùng được cho tới khi có commit đầu.
-- **Chưa commit gì** — agent không tự commit; đang chờ người dùng xác nhận (DoD Bàn giao của P0.5 yêu
-  cầu commit theo từng bước).
+- Repo **đã có lịch sử commit** trên `main` (`hoangsoft90/ai_assistant_phone`), mỗi phase một vài commit;
+  `git diff`/impact review dùng được bình thường.
+- **Đường build duy nhất = GitHub Actions** (`.github/workflows/build-debug-apk.yml`, gradlew trực tiếp).
+  Tuyệt đối **không build APK trên máy dev** (đĩa `/home` chật, không có Android SDK) — quy tắc này
+  nằm trong `.agents/skills/ai-assistant-phone-debug-apk/SKILL.md`.
+- `.plan/` **bị gitignore** (prompt nội bộ) ⇒ báo cáo phase không vào git; bản sao kiến thức đã vào
+  `working.md`/`checklist.md`/`LESSONS_LEARNED.md` (được commit).

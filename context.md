@@ -30,16 +30,17 @@ Bối cảnh dùng: đeo tai nghe, điện thoại trong túi/trên bàn, app ch
 
 ```
 lib/
-├── main.dart          # bootstrap: init service → audio session → DB → runApp
+├── main.dart          # bootstrap: init service → audio session → DB → transcript store → runApp
 ├── core/              # constants.dart + app_logger.dart
-├── audio/             # app_audio_session.dart (P1A thu, P1F SafeTtsOutput)
-├── transcript/        # (chưa có) ASR + transcript store — P1C/P1D/P1E
+├── audio/             # app_audio_session.dart (P1A thu), capture/ (P1A), vad/ (P1B), asr/ (P1C+P1D),
+│                      #   và P1F SafeTtsOutput (chưa có)
+├── transcript/        # transcript_segment.dart + transcript_store.dart — P1E
 ├── suggestion/        # (chưa có) Suggestion Engine + Policy — P2
 ├── trigger/           # (chưa có) cách kích hoạt gợi ý — P3
 ├── ui/                # home_screen.dart (màn hình chẩn đoán)
-└── services/          # foreground_service, permission_gate, storage/
-android/               # Manifest 7 quyền + service type=microphone
-test/                  # app_smoke_test.dart (có stub MethodChannel 4 plugin)
+└── services/          # foreground_service, permission_gate, storage/ (DB v2: meta + transcript)
+android/               # Manifest 7 quyền + service type=microphone + JNI/C++ ASR
+test/                  # 6 file test Dart (95 test, không cần thiết bị)
 spikes/p0_audio/       # code thăm dò P0 — KHÔNG phải code sản phẩm
 .project/              # knowledge base (entry: .project/README.md)
 .plan/                 # prompt từng phase + báo cáo phase — BỊ GITIGNORE
