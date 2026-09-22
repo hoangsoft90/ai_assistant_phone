@@ -87,6 +87,50 @@ void main() {
     });
   });
 
+  // K33 — cần đo A/B `chunkSeconds`/`threads` trên máy thật: nếu các giá trị này nằm trong code thì
+  // mỗi lần thử một mức phải build + cài lại APK. Đưa vào config (bảng `meta`) ⇒ đổi bằng dữ liệu.
+  group('AsrEngineSelector — AsrTuning (K33)', () {
+    test('chưa có khoá ⇒ mặc định chunk 4s + threads tự động', () async {
+      final AsrTuning tuning = await AsrEngineSelector(_MemoryStore()).readTuning();
+      expect(tuning.chunkSeconds, AsrTuning.defaultChunkSeconds);
+      expect(tuning.threads, AsrTuning.defaultThreads);
+      expect(AsrTuning.defaults.chunkSeconds, 4, reason: 'giữ nguyên hành vi cũ khi không cấu hình');
+    });
+
+    test('đọc đúng giá trị đã ghi', () async {
+      final _MemoryStore store = _MemoryStore();
+      store.values[AsrEngineSelector.chunkSecondsKey] = '12';
+      store.values[AsrEngineSelector.threadsKey] = '6';
+      final AsrTuning tuning = await AsrEngineSelector(store).readTuning();
+      expect(tuning.chunkSeconds, 12);
+      expect(tuning.threads, 6);
+    });
+
+    test('giá trị hỏng/ngoài khoảng ⇒ mặc định, KHÔNG ném lỗi', () async {
+      for (final String bad in <String>['abc', '0', '1', '31', '-3', '']) {
+        final _MemoryStore store = _MemoryStore();
+        store.values[AsrEngineSelector.chunkSecondsKey] = bad;
+        store.values[AsrEngineSelector.threadsKey] = '99';
+        final AsrTuning tuning = await AsrEngineSelector(store).readTuning();
+        expect(tuning.chunkSeconds, AsrTuning.defaultChunkSeconds, reason: 'chunk="$bad"');
+        expect(tuning.threads, AsrTuning.defaultThreads, reason: 'threads="99"');
+      }
+    });
+
+    test('create() áp tuning vào PhoWhisperAsrEngine; Vosk không dùng tuning', () {
+      final AsrEngineSelector selector = AsrEngineSelector(_MemoryStore());
+      final AsrEngine engine = selector.create(
+        AsrEngineKind.phoWhisper,
+        tuning: const AsrTuning(chunkSeconds: 12, threads: 6),
+      );
+      final PhoWhisperConfig config = (engine as PhoWhisperAsrEngine).config;
+      expect(config.chunkSeconds, 12);
+      expect(config.threads, 6);
+      expect(config.resolvedThreads, 6, reason: 'threads=6 phải giữ nguyên, không bị chặn trần');
+      expect(selector.create(AsrEngineKind.vosk), isA<VoskAsrEngine>());
+    });
+  });
+
   group('AsrEngineSelector — createAndInit + fallback', () {
     test('init theo engine đã cấu hình', () async {
       final _MemoryStore store = _MemoryStore();

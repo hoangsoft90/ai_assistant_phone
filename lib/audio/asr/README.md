@@ -90,6 +90,24 @@ khi build. Muốn build local: chạy lệnh `curl` trong `.github/workflows/bui
   phase — chỉ Post-Review P5 được dùng cloud, và chỉ khi có Wi-Fi).
 - **Không gắn nhãn người nói** trong transcript của bất kỳ engine nào.
 
+## 6b. Chỉnh tốc độ không cần build lại (`AsrTuning`, nợ K33)
+
+Hai khoá trong bảng `meta` (đọc lúc bật ASR, giá trị hỏng/ngoài khoảng ⇒ quay về mặc định):
+
+| Khoá | Ý nghĩa | Hợp lệ | Mặc định |
+|---|---|---|---|
+| `asr.chunkSeconds` | Số giây audio góp cho mỗi chunk gửi xuống native | 2–30 | 4 |
+| `asr.threads` | Số thread native; `0` = tự động `min(4, số nhân)` | 0–8 | 0 |
+
+Số đo trên máy 2026-09-22 (Pixel 3a, `-O3`, `threads=4`, chunk 4s): **RTF 1.13** (trung vị 4 511 ms
+cho 4 000 ms audio) — nhanh hơn 35 lần so với trước khi sửa, nhưng vẫn ≥ 1 nên còn rớt ~1 chunk/40s.
+Nghi vấn cần đo (K33): mỗi lần gọi `whisper_full` đều trả giá phần cố định ~30s mel pad ⇒ chunk lớn
+hơn có thể rẻ hơn nhiều trên mỗi giây audio.
+
+Cách đo A/B (không cần build lại): dừng app → sửa 2 khoá trong `databases/ai_assistant.db` → mở app
+→ bật ASR → đọc log engine `ASR: <latencyMs>ms xử lý <audioMs>ms audio` (qua VM Service `Logging`)
+rồi tính `RTF = latencyMs / audioMs`.
+
 ## 7. Còn thiếu gì để chốt quyết định (nợ)
 
 | Việc | Vì sao chưa làm được |
