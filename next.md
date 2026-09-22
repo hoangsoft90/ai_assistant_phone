@@ -4,7 +4,7 @@ Cập nhật: 2026-09-21 15:17 (+07). Nguồn: `.plan/production_roadmap.md`, `.
 
 ## Đang ở đâu
 
-- **Phase hiện tại: hết P1E — chờ xác nhận của người dùng để sang P1F (TTS Output Safety Layer).** P1C–P1E đã code xong; điều còn thiếu xuyên suốt vẫn là **một vòng đo trên máy thật** (P0/P0.5/P1A/P1B/P1C/P1D/P1E đều nợ DoD đo trên máy — K18/K19/K27).
+- **Phase hiện tại: P1F — code xong, đang chờ chạy 3 test case bắt buộc trên máy thật (K34).** P1C–P1F đã code xong; điều còn thiếu xuyên suốt vẫn là **một vòng đo trên máy thật** (P0/P0.5/P1A/P1B/P1C/P1D/P1E/P1F đều nợ DoD đo trên máy — K2/K18/K19/K27/K34).
 - Nguyên tắc: đi tuần tự, không nhảy cóc; mỗi phase phải tự kiểm Precondition và tự đối chiếu Definition of Done **có bằng chứng** trước khi báo xong.
 
 ## Bảng phase & trạng thái
@@ -18,7 +18,7 @@ Cập nhật: 2026-09-21 15:17 (+07). Nguồn: `.plan/production_roadmap.md`, `.
 | 5 | **P1C** ASR PhoWhisper (chính) | 🟡 **code xong, native compile XANH** (run #7); 0/4 DoD máy thật | Engine + JNI + model 29MB trong APK. Nợ K18 (đo máy thật). |
 | 6 | **P1D** ASR Vosk (dự phòng) + abstraction | 🟡 **code xong** (`82f91d2`, CI run mới); 2/4 DoD đạt | Vosk streaming + `AsrEngineSelector` (đổi engine qua config, fallback tự động). **PhoWhisper là mặc định tạm thời** — xem `lib/audio/asr/README.md`. Nợ K19 (đo máy thật), K20 (JNA), K21 (kích thước/RAM). |
 | 7 | **P1E** Transcript Store | 🟡 **code xong** (2/4 DoD đạt) | SQLite v2 + migration; rolling 8 phút trong RAM, xoá sau 7 ngày, khôi phục phiên sau khi bị kill; API text thô không nhãn cho P2. Nợ K27 (đo máy thật), K28 (có mã hoá DB không?). |
-| 8 | **P1F** TTS Output Safety Layer (A2DP-only) | ⬜ | Phase an toàn quan trọng nhất; cần đủ 3 test case bắt buộc. |
+| 8 | **P1F** TTS Output Safety Layer (A2DP-only) | 🟡 **code xong** (`386c3df`, CI run #22/#23 xanh); **0/3 test case máy thật** | Phase an toàn quan trọng nhất. `SafeTtsOutput` = cổng duy nhất phát âm thanh; native `TextToSpeech` → `AudioTrack.setPreferredDevice`, `USAGE_MEDIA`; 2 lớp dừng khi mất tai nghe. Nợ K34 (3 test case), K35 (half-duplex — P4), K36 (giới hạn thiết bị/engine). Xem `.project/modules/tts-safety.md`. |
 | 9 | **P1G** Emergency Phrase (local) | ⬜ | |
 | 10 | **P2** Suggestion Engine (LLM + Policy) | ⬜ | |
 | 11 | **P3** Trigger Abstraction + Output Modes + Offline Nudge Cache | ⬜ | |

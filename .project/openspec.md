@@ -38,7 +38,7 @@ dự kiến là P1A/P1B.
 | P1C | ASR PhoWhisper (chính) | 🟡 code xong + native compile XANH (CI run #7); 0/4 DoD máy thật — nợ K18 |
 | P1D | ASR Vosk (dự phòng) + abstraction | 🟡 code xong (`82f91d2`), CI XANH (run 35612601371); 2/4 DoD đạt — nợ K19/K20/K21 |
 | P1E | Transcript Store | 🟡 **code xong** (2/4 DoD đạt) — SQLite **v2 + migration** (3 bảng transcript), rolling 8 phút trong RAM, xoá sau 7 ngày, khôi phục phiên sau khi bị kill, API text thô không nhãn cho P2. Nợ K27 (đo máy thật), K28 (mã hoá DB?) |
-| P1F | TTS Output Safety Layer (A2DP-only) | ⬜ — **phase an toàn quan trọng nhất** |
+| P1F | TTS Output Safety Layer (A2DP-only) | 🟡 **code xong** (`386c3df`, CI run #22/#23 xanh — Kotlin biên dịch được, 21 test mới); **3 test case bắt buộc CHƯA chạy trên máy thật** — nợ K34 |
 | P1G | Emergency Phrase (local) | ⬜ |
 | P2 | Suggestion Engine (LLM + Policy) | ⬜ |
 | P3 | Trigger Abstraction + Output Modes + Offline Nudge Cache | ⬜ |
@@ -76,11 +76,14 @@ dự kiến là P1A/P1B.
 | K18–K21 | **P1C/P1D chưa đo trên máy thật** (trễ chunk, pin 45′, JNA `libjnidispatch.so`, RAM/kích thước model, bảng so sánh 2 engine) | 🔴 cao | `lib/audio/asr/README.md`, `checklist.md` |
 | **K27** | **P1E: crash recovery + hạn 7 ngày + migration v1→v2 CHƯA chạy trên máy thật** — unit test chỉ chứng minh logic; SQL mới kiểm bằng sqlite3 offline | 🔴 cao | `.plan/P1E-result.md`, `lib/transcript/README.md` mục 5 |
 | **K28** | **Transcript chưa được mã hoá**: `sqflite` không hỗ trợ, muốn mã hoá phải đổi sang `sqflite_sqlcipher` (+ chuyển dữ liệu cũ). Hiện dựa vào sandbox app + xoá sau 7 ngày | 🟠 vừa | `lib/transcript/README.md` mục 4 |
+| **K34** | **P1F: 3 test case bắt buộc (rút tai nghe giữa lúc đọc / rút trước khi đọc / tắt kết nối khi đang đọc) CHƯA chạy trên máy thật** — unit test chỉ khoá logic Dart, không chứng minh được "không lọt ra loa ngoài". Đây là phase an toàn quan trọng nhất của app nên **không được** coi là xong | 🔴 cao | `.plan/P1F-result.md`, `.project/modules/tts-safety.md` mục 6 |
+| **K35** | **Half-duplex chưa nối** (đang thu thì không phát TTS và ngược lại) — ràng buộc #5 của `overview.md`; `SafeTtsOutput` không giữ tham chiếu tới tầng capture. Việc ghép là P4 | 🟠 vừa | `.project/modules/tts-safety.md` mục 7 |
+| **K36** | **Giới hạn nhận dạng thiết bị + engine TTS**: (a) không phân biệt được tai nghe A2DP với loa Bluetooth A2DP (cùng `TYPE_BLUETOOTH_A2DP`) ⇒ loa BT cũng bị coi là "riêng tư"; (b) kênh TTS chỉ đăng ký cho engine UI nên chưa phát được khi app ở nền (P3/P4 cần) | 🟡 thấp | `.project/modules/tts-safety.md` mục 7 |
 
 ## 4. Todo ngay tiếp theo (thứ tự)
 
 1. **Tải APK debug mới nhất từ CI → cài máy thật → chạy 1 vòng protocol đo** cho **tất cả** phase
-   đang nợ: P1E (`am kill` + đổi ngày 8 ngày), P1D (2 engine, 45′), P1B (ngưỡng VAD bằng giọng thật),
+   đang nợ: **P1F (3 test case TTS, K34)**, P0 Task 2/3 (K2), P1E (`am kill` + đổi ngày 8 ngày), P1D (2 engine, 45′), P1B (ngưỡng VAD bằng giọng thật),
    P1A/P0.5 (quyền, FGS, DB, `becomingNoisy`), P0 (A2DP/HFP). Đây là điểm chặn chất lượng của 5 phase.
 2. Vá ngưỡng/logic theo số liệu máy thật (VAD K15, engine mặc định K3/K18, Vosk K20/K21).
 3. Chốt **K28** (có mã hoá DB transcript không) trước khi phát hành cho người khác dùng.

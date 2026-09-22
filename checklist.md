@@ -225,6 +225,21 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
   trên máy (cần 2 lần bấm — chờ user hoặc lúc máy rảnh).
 - [ ] **K32 (🟡) — RAM khi ASR chạy (K21):** chưa đo `dumpsys meminfo` trong lúc ASR bật.
 
+### Thuộc P1F (DoD chưa xác minh — cần APK + máy thật + tai nghe) — K34 🔴
+
+> Phase an toàn quan trọng nhất của app: **không được** tick chỉ vì code chạy không lỗi.
+> Lệnh thu bằng chứng: `adb logcat -v time -s SafeTts:V flutter:V | tee /tmp/p1f_run.log`
+> và `adb shell dumpsys audio | grep -iE "a2dp|sco|ForceUse"`.
+
+- [ ] **Test case 1:** rút tai nghe **giữa lúc đang đọc** → log `becomingNoisy`/`MẤT thiết bị riêng tư`
+  + `đã DỪNG phát TTS` + rung 2 nhịp, **không** nghe gì từ loa ngoài (xác nhận bằng tai + video).
+- [ ] **Test case 2:** rút tai nghe rồi mới bấm đọc → `không có tai nghe ⇒ KHÔNG phát TTS` + rung 1 nhịp,
+  không có AudioTrack nào được tạo.
+- [ ] **Test case 3:** tắt kết nối Bluetooth trong Cài đặt **giữa lúc đang đọc** → hành vi như test case 1.
+- [ ] Sau khi mất kết nối: bấm "Đọc thử" tiếp → phải bị chặn (`chưa xác nhận route`) cho tới khi bấm
+  nút **"Xác nhận tai nghe đã sẵn sàng (P1F)"**.
+- [ ] Dòng `TTS` trên màn hình chẩn đoán hiện đúng tên/loại thiết bị đang được coi là tai nghe.
+
 ### Thuộc P1B (DoD chưa xác minh — cần APK + máy thật)
 
 - [ ] Nói to gần mic → `userSpeaking` trong <500ms (đo bằng giọng thật).
