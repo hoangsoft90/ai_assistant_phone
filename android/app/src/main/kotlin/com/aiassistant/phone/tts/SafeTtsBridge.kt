@@ -1,6 +1,9 @@
 package com.aiassistant.phone.tts
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -115,12 +118,58 @@ class SafeTtsEngine(
         AudioDeviceInfo.TYPE_HEARING_AID,
     )
 
-    /** Theo dõi thiết bị ra/vào theo thời gian thực (không cần quyền Bluetooth, khác ACL broadcast). */
+    /**
+     * **Lớp dừng sớm nhất**: `ACTION_AUDIO_BECOMING_NOISY`.
+     *
+     * Hệ thống bắn broadcast này **trước khi** đổi route (đây là tín hiệu chuẩn của Android cho tình
+     * huống rút tai nghe — app nhạc dùng nó để pause). Vì mục tiêu của P1F là "không lọt ra loa dù chỉ
+     * một khoảnh khắc", ta dừng ở đây thay vì chờ `AudioDeviceCallback` cập nhật danh sách thiết bị
+     * (muộn hơn, sau khi route đã đổi).
+     *
+     * Cảnh báo nhỏ: một số máy bắn broadcast này cả khi CẮM tai nghe vào. Hướng xử lý vẫn an toàn —
+     * dừng phát + vào chế độ im lặng + đòi xác nhận trước lần đọc kế tiếp.
+     */
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                return
+            }
+            Log.w(TAG, "becomingNoisy: thiết bị ra sắp đổi ⇒ dừng phát NGAY")
+            val wasActive = stopPlaybackInternal()
+            vibrate(VibrationPattern.HEADSET_LOST)
+            onEvent(
+                "headsetLost",
+                mapOf(
+                    "wasPlaying" to wasActive,
+                    "reason" to "becomingNoisy",
+                    "state" to outputState(),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Theo dõi thiết bị ra/vào theo thời gian thực (không cần quyền Bluetooth, khác ACL broadcast)
+     * + đăng ký lớp dừng sớm `becomingNoisy`. Chỉ gọi MỘT lần cho mỗi process.
+     */
     fun start() {
         try {
             audioManager.registerAudioDeviceCallback(this, Handler(Looper.getMainLooper()))
         } catch (t: Throwable) {
             Log.e(TAG, "không đăng ký được AudioDeviceCallback", t)
+        }
+        try {
+            val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // App target Android 14+ bắt buộc khai báo exported/not-exported cho receiver đăng ký động.
+                appContext.registerReceiver(noisyReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                appContext.registerReceiver(noisyReceiver, filter)
+            }
+        } catch (t: Throwable) {
+            // Lớp này là lớp dừng SỚM; AudioDeviceCallback (đã đăng ký ở trên) vẫn là lớp bảo hiểm.
+            Log.e(TAG, "không đăng ký được becomingNoisy receiver", t)
         }
         // Làm ấm engine TTS ngay từ đầu để lần bấm đầu tiên không bị "chưa sẵn sàng".
         ensureTts()

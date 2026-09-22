@@ -25,7 +25,8 @@ NativeTtsClient          lib/audio/tts/tts_channels.dart      ← MethodChannel 
       ▼
 SafeTtsEngine (Kotlin)   android/.../tts/SafeTtsBridge.kt
       ├── AudioManager.getDevices(GET_DEVICES_OUTPUTS)   ← đọc TƯƠI mỗi lần quyết định phát
-      ├── AudioDeviceCallback (registerAudioDeviceCallback) ← biết tai nghe ra/vào theo thời gian thực
+      ├── ACTION_AUDIO_BECOMING_NOISY (receiver)         ← lớp DỪNG SỚM NHẤT (hệ thống bắn TRƯỚC khi đổi route)
+      ├── AudioDeviceCallback (registerAudioDeviceCallback) ← lớp bảo hiểm: biết tai nghe ra/vào (cả có dây & BT)
       ├── TextToSpeech.synthesizeToFile(...)             ← CHỈ tổng hợp ra file, KHÔNG tự phát
       └── AudioTrack + setPreferredDevice(a2dpDevice)    ← route TƯỜNG MINH, USAGE_MEDIA
 ```
@@ -57,6 +58,7 @@ cách chọn messenger (xem mục 7).
 | A3 | Native trả `noHeadset` (Dart đọc trước đó đã cũ) ⇒ chuyển im lặng | test `native trả "noHeadset"…` |
 | A4 | Lỗi/giá trị lạ từ native ⇒ `failed`, **không thử lại** | test `trả giá trị lạ` / `ném exception` |
 | A5 | Mất tai nghe giữa chừng ⇒ native dừng ngay + Dart vào im lặng + gọi `stop()` lần 2 | test `headsetLost: im lặng ngay…` |
+| A5b | Dừng ở 2 lớp: `becomingNoisy` (sớm nhất, trước khi route đổi) + `AudioDeviceCallback` (bảo hiểm, phủ cả Bluetooth) | Kotlin `noisyReceiver` + `onAudioDevicesRemoved` |
 | A6 | Kết nối lại ⇒ **không tự phát lại**, phải `confirmHeadsetReady()` | test `headsetFound (kết nối lại)…` |
 | A7 | File tổng hợp xong muộn (sau khi stop/mất tai nghe) **không** được phát | Kotlin `generation` token (`onDone` so thế hệ) |
 | A8 | `setPreferredDevice` bị từ chối ⇒ **không phát** | Kotlin `playSynthesized()` |
@@ -83,6 +85,9 @@ adb shell dumpsys audio | grep -iE "a2dp|sco|route|ForceUse"    # bằng chứng
    rung 2 nhịp, **không** nghe gì từ loa ngoài.
 2. Rút tai nghe **đúng lúc chuẩn bị đọc** ⇒ mong đợi: `không có tai nghe ⇒ KHÔNG phát TTS` + rung 1
    nhịp, không có AudioTrack nào được tạo.
+
+Với tai nghe có dây, log của test case 1 sẽ đi qua **`becomingNoisy`** trước (rồi mới tới
+`MẤT thiết bị riêng tư` nếu hệ thống cập nhật danh sách thiết bị).
 3. **Tắt Bluetooth** trong Cài đặt giữa lúc đang đọc ⇒ hành vi như (1).
 
 ## 7. Hạn chế đã biết / việc chưa làm (đừng tưởng nhầm đã có)
