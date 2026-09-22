@@ -132,3 +132,8 @@
   phút**; **54 dòng transcript thật** trong 4.7 phút (khoảng cách trung vị 4 535 ms); **0 crash
   SIGILL**. ASR vẫn chạy (nên tắt bằng nút khi không đo). **Chưa đạt realtime** (RTF ≥ 1) ⇒ bước tiếp
   theo là **K33**: thử chunk 8–12s và `threads` 6 (chỉ đổi config, không đụng cờ build).
+- [2026-09-22] **ĐO K33 XONG — ASR ĐẠT REALTIME trên máy:** A/B qua `AsrTuning` (bảng `meta`, không
+  build lại): 4s/4 → RTF trung vị **1.47** · 8s/6 → **0.63** · **12s/6 → 0.31, 0 chunk bị bỏ**.
+  Xác nhận nghi mel pad ~30s/chunk là thật (K29d). Máy test đang chạy config **12s/6**; mặc định code
+  vẫn 4s/auto, chờ user chốt có đổi mặc định không. Crash recovery (25 dòng) tự xác nhận khi app
+  restart giữa các lần đo. Chi tiết: `lib/audio/asr/README.md` mục 6b, `checklist.md` K33.

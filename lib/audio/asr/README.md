@@ -99,14 +99,29 @@ Hai khoá trong bảng `meta` (đọc lúc bật ASR, giá trị hỏng/ngoài k
 | `asr.chunkSeconds` | Số giây audio góp cho mỗi chunk gửi xuống native | 2–30 | 4 |
 | `asr.threads` | Số thread native; `0` = tự động `min(4, số nhân)` | 0–8 | 0 |
 
-Số đo trên máy 2026-09-22 (Pixel 3a, `-O3`, `threads=4`, chunk 4s): **RTF 1.13** (trung vị 4 511 ms
-cho 4 000 ms audio) — nhanh hơn 35 lần so với trước khi sửa, nhưng vẫn ≥ 1 nên còn rớt ~1 chunk/40s.
-Nghi vấn cần đo (K33): mỗi lần gọi `whisper_full` đều trả giá phần cố định ~30s mel pad ⇒ chunk lớn
-hơn có thể rẻ hơn nhiều trên mỗi giây audio.
+Số đo A/B **đã thực hiện trên máy thật** (Pixel 3a, 2026-09-22, APK `-O3` 1 ABI, đo qua VM Service
+`Logging`, âm thanh chủ yếu là tiếng ồn phòng + một ít tiếng nói thật):
 
-Cách đo A/B (không cần build lại): dừng app → sửa 2 khoá trong `databases/ai_assistant.db` → mở app
-→ bật ASR → đọc log engine `ASR: <latencyMs>ms xử lý <audioMs>ms audio` (qua VM Service `Logging`)
-rồi tính `RTF = latencyMs / audioMs`.
+| Config (chunk/threads) | Số chunk | RTF trung vị | RTF min–max | Chunk bị bỏ |
+|---|---|---|---|---|
+| 4s / 4 (mặc định cũ) | 12 (100 s) | **1.47** | 1.37–6.10 | 31 trước khi đo |
+| 8s / 6 | 24 (200 s) | **0.63** | 0.44–2.31 | 1 |
+| **12s / 6** | 13 (150 s) | **0.31** | 0.30–0.85 | **0** |
+
+Kết luận K33: nghi vấn mel pad ~30 s là chi phí cố định mỗi lần gọi `whisper_full` **được xác nhận**
+— chunk càng lớn thì phần cố định càng được chia cho nhiều giây audio, RTF giảm ~5 lần từ 4s→12s.
+**12s/6 là cấu hình tốt nhất đo được**: ngay cả chunk xấu nhất vẫn RTF < 1, không rớt chunk nào.
+Đổi lại: một câu nói chờ tối đa ~12 s + ~4 s xử lý mới thành text — chấp nhận được cho use case
+"gợi ý câu nói" của P2, vì RTF ≥ 1 làm MẤT vĩnh viễn audio (rớt chunk) còn chậm vài giây thì không.
+
+Trạng thái config: máy test đang giữ `asr.chunkSeconds=12`, `asr.threads=6` trong bảng `meta`.
+Mặc định trong code vẫn là 4s/auto(4) — nếu muốn đổi mặc định cho mọi máy, sửa
+`AsrTuning.defaultChunkSeconds`/`defaultThreads` (cần build lại).
+
+Cách đo lại A/B (không cần build lại): dừng app → sửa 2 khoá trong `databases/ai_assistant.db`
+(đường `run-as`: pull DB → sqlite3 → push lại, checkpoint WAL) → mở app → bật ASR → đọc log engine
+`ASR: <latencyMs>ms xử lý <audioMs>ms audio` (qua VM Service `Logging`) rồi tính
+`RTF = latencyMs / audioMs`.
 
 ## 7. Còn thiếu gì để chốt quyết định (nợ)
 

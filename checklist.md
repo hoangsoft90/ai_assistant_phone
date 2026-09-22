@@ -202,15 +202,19 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
     CPU part `0x803` (A75) ×6 + `0x802` (A55) ×2. Đã revert trong `bac1414`, chỉ giữ `-O3`, kèm
     cảnh báo ⛔ trong `CMakeLists.txt` + bài học **A42**. Muốn có dotprod ⇒ phải build 2 biến thể
     và chọn theo HWCAP lúc chạy (chưa làm, chờ quyết định).
-  - [ ] **K29d — chunk 4s + whisper pad ~30s:** `whisper_full` luôn mã hoá mel theo cửa sổ ~30s, nên
-    chi phí 1 chunk 4s ≈ chi phí 30s audio ⇒ chọn chunk nhỏ làm RTF phóng đại ~7x. Cần đo A/B trên
-    host (chunk 4s vs 10–15s) trước khi kết luận thuật toán có khả thi.
-  - [ ] **K33 (🟠) — đường để RTF < 1 (chưa làm):** thứ tự thử đẻ rẻ trước, **không đụng cờ build**:
-    1. **Chunk 8–12s** (chỉ đổi `PhoWhisperConfig.chunkSeconds`) — vì chi phí cố định ~30s mel pad
-       đang chiếm phần lớn mỗi lần gọi; chunk lớn hơn chia đều phần cố định đó.
-    2. **`threads` 6 thay vì 4** (máy 8 nhân) — đo lại cả 2 mức trên cùng máy.
-    3. Chỉ khi cần thêm: dotprod — nhưng **Pixel 3a không có dotprod** nên bước này không giúp máy
-       test, chỉ có ích cho máy khác (phải build 2 biến thể + chọn theo HWCAP, xem A42).
+  - [x] **K29d — chunk 4s + whisper pad ~30s — ĐÃ XÁC NHẬN bằng đo A/B trên máy (2026-09-22):**
+    chunk 4s RTF trung vị **1.47** trong khi chunk 12s chỉ **0.31** (cùng bản APK, cùng máy) —
+    chi phí cố định ~30s mel pad mỗi lần gọi `whisper_full` là thật. Số liệu đầy đủ: bảng trong
+    `lib/audio/asr/README.md` mục 6b.
+  - [x] **K33 (🟠) — đường để RTF < 1 — ĐÃ ĐO XONG trên máy (2026-09-22), ĐẠT realtime:**
+    | Config | RTF trung vị | Chunk bị bỏ |
+    |---|---|---|
+    | 4s/4 | 1.47 | (31 trước đo) |
+    | 8s/6 | 0.63 | 1 |
+    | **12s/6** | **0.31** | **0** |
+    Đổi bằng `AsrTuning` qua bảng `meta` (không build lại) — đúng như thiết kế. Cấu hình tốt nhất:
+    **12s/6**. Máy test đang giữ config này; mặc định trong code vẫn 4s/auto — quyết định đổi mặc
+    định cho mọi máy là của user (đánh đổi: độ trễ hiển thị câu ~12–16s). Chi tiết: `lib/audio/asr/README.md` mục 6b.
 - [x] **K30 (🟠) — `abiFilters` bị plugin Flutter ghi đè** ⇒ **đã sửa `2ecdd3b`:** gốc là
   `FlutterPlugin.configureAbiWithoutSplits()` gọi `abiFilters.clear()` + `addAll(PLATFORM_ABI_LIST)`
   = [armeabi-v7a, arm64-v8a, x86_64] **sau** khi app khai báo ⇒ phải bật property
