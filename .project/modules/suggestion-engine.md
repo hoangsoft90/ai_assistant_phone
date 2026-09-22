@@ -42,11 +42,15 @@ và chỉ gửi **text** transcript (audio 100% offline, ràng buộc cứng t�
    và đoạn đọc `choices` trong `groq_llm_provider.dart`. Lưới an toàn thứ hai là `_generateOnce()`
    trong `suggestion_service.dart` — đừng bỏ nó khi refactor, và nếu viết provider mới thì cũng đi qua nó.
 7. **Không log nội dung nudge/transcript** — nội dung suy ra từ hội thoại là dữ liệu nhạy cảm; logcat chỉ
-   ghi loại nudge + lý do (nội dung đã hiển thị trên màn hình chẩn đoán).
+   ghi loại nudge + lý do (nội dung đã hiển thị trên màn hình chẩn đoán). Dùng
+   `SuggestionResult.logLabel` cho log (P3 thêm getter này sau khi phát hiện `toString()` có nội dung bị
+   lọt vào log của `TriggerManager`).
 
 ## 5. Việc còn lại (không thuộc P2)
 
-- Offline Nudge Cache (mục 4.12) — P3.
-- Trigger thật (floating button/gesture) + hiển thị nudge nghiêm túc — P3.
+- ~~Offline Nudge Cache (mục 4.12)~~ — ✅ đã có ở P3 (`offline_nudge_cache.dart` +
+  `assets/offline_nudge_cache.json`), chỉ chạy khi **không dùng được LLM**. Xem
+  `.project/modules/trigger-and-output.md`; nợ K44 (câu chung, không theo chủ đề).
+- ~~Trigger thật (floating button/gesture)~~ — ✅ đã có ở P3 (`lib/trigger/`, `lib/ui/floating_button.dart`).
 - Pre-Brief + Session summary thật trong prompt — P5.
 - `SessionMemory` persist qua lần mở app — chưa cần (P2 cho phép giữ trong RAM).

@@ -36,14 +36,29 @@ enum NudgeType {
 /// lỗi ở tầng dưới (timeout, mất mạng, JSON hỏng) cũng phải quy về nó để app KHÔNG bao giờ crash
 /// hay hiện lỗi kỹ thuật cho người dùng. [note] chỉ là ghi chú chẩn đoán (hiện trên màn hình
 /// chẩn đoán/log; UI thật ở P3 không đọc nó).
+/// Nguồn của nudge (P3 mục 4.12: "đánh dấu rõ khi nudge đến từ cache offline").
+enum NudgeSource {
+  /// LLM thật trả về.
+  llm,
+
+  /// Lấy từ Offline Nudge Cache (không gọi được LLM).
+  cache,
+}
+
 class SuggestionResult {
-  const SuggestionResult.noSuggestion({this.note})
+  const SuggestionResult.noSuggestion({this.note, this.unavailable = false})
       : isNudge = false,
         type = null,
-        text = null;
+        text = null,
+        source = NudgeSource.llm;
 
-  const SuggestionResult.nudge({required this.type, required this.text, this.note})
-      : isNudge = true;
+  const SuggestionResult.nudge({
+    required this.type,
+    required this.text,
+    this.note,
+    this.source = NudgeSource.llm,
+  }) : isNudge = true,
+       unavailable = false;
 
   final bool isNudge;
   final NudgeType? type;
@@ -52,10 +67,29 @@ class SuggestionResult {
   /// Ghi chú chẩn đoán (lý do bị chặn/lỗi), `null` nếu không có gì đặc biệt.
   final String? note;
 
+  /// Nguồn của nudge (chỉ có nghĩa khi [isNudge]).
+  final NudgeSource source;
+
+  /// `true` khi **không dùng được LLM** (timeout / mất mạng / JSON hỏng sau khi retry).
+  ///
+  /// Cố ý tách khỏi `NO_SUGGESTION` "hợp lệ": LLM trả `NO_SUGGESTION` hoặc Policy chặn đều KHÔNG
+  /// được phép fallback sang Offline Cache (chặn khi đang nói mà vẫn đọc nudge là vi phạm nguyên
+  /// tắc bất biến số 2). Chỉ [unavailable] mới kích hoạt fallback.
+  final bool unavailable;
+
+  /// Nhãn **KHÔNG chứa nội dung nudge** — dùng cho mọi dòng log.
+  ///
+  /// Lý do: nội dung nudge được LLM suy ra từ hội thoại thật, cùng mức nhạy cảm với transcript
+  /// (quyết định từ review P2). Logcat chỉ ghi loại/nguồn/trạng thái; nội dung hiện trên màn hình
+  /// chẩn đoán khi cần đối chiếu.
+  String get logLabel => isNudge
+      ? 'NUDGE(${type!.apiName}${source == NudgeSource.cache ? '/cache' : ''})'
+      : 'NO_SUGGESTION${note == null ? '' : ' ($note)'}'
+          '${unavailable ? ' · LLM không dùng được' : ''}';
+
+  /// Dạng đầy đủ (CÓ nội dung) — chỉ để hiển thị/test, KHÔNG dùng cho log.
   @override
-  String toString() => isNudge
-      ? 'NUDGE(${type!.apiName}): "$text"'
-      : 'NO_SUGGESTION${note == null ? '' : ' ($note)'}';
+  String toString() => isNudge ? '$logLabel: "$text"' : logLabel;
 }
 
 /// Ngữ cảnh một lần xin gợi ý — đã dựng xong (kể cả prompt khung đã thay placeholder).

@@ -1,12 +1,11 @@
-# `lib/suggestion/` — suggestion engine (LLM + policy)
-
-P2 đã dựng xong. P3 (trigger + Offline Nudge Cache) và P5 (Pre-Brief/Post-Review/Training Level)
-bổ sung tiếp.
+# `lib/suggestion/` — suggestion engine (LLM + policy)P2 đã dựng xong; **P3 đã thêm Offline Nudge Cache** (`offline_nudge_cache.dart` + `assets/offline_nudge_cache.json`).
+P5 (Pre-Brief/Post-Review/Training Level) bổ sung tiếp. Tầng kích hoạt (nút nổi / gesture) nằm ở
+`lib/trigger/`, KHÔNG ở đây — xem `.project/modules/trigger-and-output.md`.
 
 ## Luồng một lần Push (thủ công)
 
 ```
-Bấm Push (P2: nút debug trên màn hình chẩn đoán; P3: nút thật)
+  Bấm Push (P3: nút nổi trong app hoặc nút chẩn đoán — cùng `TriggerManager.onSuggestRequested`)
    │
    ├─ 1. SuggestionPolicy.canSuggest()   ← chặn CỨNG ở đây, TRƯỚC khi dựng context
    │        · userSpeaking  ⇒ KHÔNG gọi LLM (nguyên tắc bất biến số 2)
@@ -23,6 +22,10 @@ Bấm Push (P2: nút debug trên màn hình chẩn đoán; P3: nút thật)
    └─ 4. parse + anti-repetition + ghi bộ nhớ phiên
             · JSON hỏng sau retry ⇒ NO_SUGGESTION
             · nudge trùng text/type trong 2 phút ⇒ NO_SUGGESTION
+
+  (P3) nhánh "không dùng được LLM" (timeout / mất mạng / JSON hỏng sau retry)
+       ⇒ OfflineNudgeCache.pickNext() → SuggestionResult.nudge(source: cache)
+         · CHỈ nhánh này mới fallback — Policy chặn và NO_SUGGESTION hợp lệ thì KHÔNG
 ```
 
 **Bất biến quan trọng:** `SuggestionService.push()` **KHÔNG BAO GIỜ ném** — policy, đọc transcript,
@@ -40,6 +43,7 @@ mạng, timeout, JSON: tất cả quy về `NO_SUGGESTION` (có `note` chẩn đ
 | `suggestion_context_builder.dart` | Dựng prompt khung **nguyên văn** + `formatPushTimestamp()` |
 | `session_memory.dart` | `recentSuggestions`/`topicsExplored`/`lastNudgeType` trong RAM (P2 chưa persist) |
 | `suggestion_service.dart` | Orchestrator `push()` / `pushFromState()` — nơi duy nhất UI nên gọi |
+| `offline_nudge_cache.dart` | **P3** — kho nudge chung trong `assets/offline_nudge_cache.json`; chọn xoay vòng, tránh câu vừa hiện, **không bao giờ ném** |
 
 ## Ràng buộc không được vi phạm (ràng buộc xuyên phase)
 
@@ -54,12 +58,14 @@ mạng, timeout, JSON: tất cả quy về `NO_SUGGESTION` (có `note` chẩn đ
    `TypeError` không phải `SuggestionException` ⇒ nó xuyên qua `on SuggestionException` và `push()`
    ném ra UI. Đọc bằng `is`; giữ `_generateOnce()` trong `suggestion_service.dart` làm lưới an toàn.
 8. **Không log nội dung nudge** (nội dung suy từ hội thoại = dữ liệu nhạy cảm) — chỉ log loại + lý do.
+   Dùng `SuggestionResult.logLabel` cho mọi dòng log; `toString()` (có nội dung) chỉ để hiển thị/test.
 
 ## Còn nợ / việc của phase sau
 
-- **Offline Nudge Cache (mục 4.12)** — P3 mới làm; P2 chỉ fail gracefully (timeout ⇒ NO_SUGGESTION).
+- **Offline Nudge Cache** — ✅ đã có ở P3. Nợ **K44**: câu trong cache là câu **chung**, không theo nội
+  dung hội thoại (ta không biết nội dung khi LLM không trả về) — nếu dùng thật thấy vô dụng thì chốt lại ở P5.
 - **Pre-Brief + Session summary** trong prompt đang để rỗng — P5 (summary cần LLM tóm tắt định kỳ).
-- **Nút Push thật** (floating button/gesture) — P3; P2 dùng nút debug trên màn hình chẩn đoán.
+- **Nút Push thật** — ✅ đã có ở P3 (`lib/trigger/`, nút nổi + gesture giữ 2s = Emergency).
 - `SessionMemory` chưa persist qua lần mở app (P2 yêu cầu "chưa cần persist phức tạp").
 - Anti-repetition so khớp text chuẩn hoá **hoặc** cùng `type` — đúng nghĩa "trùng chủ đề/type" trong
   prompt; nếu thực tế thấy chặn quá tay (2 lần ASK liên tiếp khác chủ đề) thì cần chốt lại ở P5.

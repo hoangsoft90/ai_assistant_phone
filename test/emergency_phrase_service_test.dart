@@ -28,7 +28,7 @@ class _FakeTtsClient implements TtsClient {
       TtsOutputInfo(hasPrivateOutput: hasHeadset, preferred: hasHeadset ? const TtsDevice(type: 4) : null);
 
   @override
-  Future<TtsNativeSpeakResult> speak(String text) async {
+  Future<TtsNativeSpeakResult> speak(String text, {double? rate}) async {
     speakCalls++;
     spokenTexts.add(text);
     if (throwOnSpeak) {

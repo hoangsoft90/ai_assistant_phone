@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_assistant_phone/audio/tts/safe_tts_output.dart';
 import 'package:ai_assistant_phone/audio/tts/tts_channels.dart';
 import 'package:ai_assistant_phone/audio/tts/tts_client.dart';
+import 'package:ai_assistant_phone/core/constants.dart';
 
 /// Client giả: không cần kênh native, ghi lại mọi lời gọi để khẳng định "đã KHÔNG gọi phát".
 class FakeTtsClient implements TtsClient {
@@ -32,6 +33,9 @@ class FakeTtsClient implements TtsClient {
   int deviceType;
 
   final List<String> speakCalls = <String>[];
+
+  /// Tốc độ đọc đã gửi xuống native ở mỗi lời gọi `speak` (P3) — `null` = không gửi tham số.
+  final List<double?> speakRates = <double?>[];
   int stopCalls = 0;
   int vibrateCalls = 0;
   int outputStateCalls = 0;
@@ -53,8 +57,9 @@ class FakeTtsClient implements TtsClient {
   }
 
   @override
-  Future<TtsNativeSpeakResult> speak(String text) async {
+  Future<TtsNativeSpeakResult> speak(String text, {double? rate}) async {
     speakCalls.add(text);
+    speakRates.add(rate);
     if (speakThrows) {
       throw StateError('kênh native chết khi speak');
     }
@@ -93,6 +98,23 @@ void main() {
 
       expect(tts.state, TtsOutputState.ready);
       expect(tts.lastInfo?.preferred?.name, 'Tai nghe test');
+    });
+
+    test('tốc độ đọc (P3): chuẩn hoá về 0.9-1.2 trước khi xuống native; không truyền thì bỏ hẳn khoá', () async {
+      final FakeTtsClient client = FakeTtsClient(hasOutput: true);
+      final SafeTtsOutput tts = SafeTtsOutput(client: client);
+
+      await tts.speak('xin chào', speechRate: 5.0); // ngoài khoảng ⇒ kẹp
+      await tts.speak('xin chào', speechRate: 0.95); // trong khoảng ⇒ giữ
+      await tts.speak('xin chào', speechRate: double.nan); // NaN ⇒ về mặc định
+      await tts.speak('xin chào'); // không truyền ⇒ null (native giữ tốc độ đang đặt)
+
+      expect(client.speakRates, <double?>[
+        OutputConfig.maxSpeechRate,
+        0.95,
+        OutputConfig.defaultSpeechRate,
+        null,
+      ]);
     });
 
     test('speak() khi KHÔNG có tai nghe: không gọi native speak, có rung + nudge chữ', () async {

@@ -14,10 +14,13 @@ import '../audio/capture/audio_capture_controller.dart';
 import '../audio/capture/capture_config.dart';
 import '../audio/vad/conversation_state.dart';
 import '../audio/vad/conversation_state_notifier.dart';
+import '../audio/nudge_delivery.dart';
+import '../audio/output_mode_selector.dart';
 import '../core/app_logger.dart';
 import '../core/constants.dart';
 import '../suggestion/suggestion_models.dart';
-import '../suggestion/suggestion_service.dart';
+import '../trigger/trigger_manager.dart';
+import 'floating_button.dart';
 import '../services/foreground_service.dart';
 import '../services/permission_gate.dart';
 import '../services/storage/app_database.dart';
@@ -84,11 +87,16 @@ class _HomeScreenState extends State<HomeScreen> {
   /// để kiểm trên máy thật; gesture thật (giữ nút nổi 2 giây) là việc của P3.
   final EmergencyPhraseService _emergency = EmergencyPhraseService();
 
-  /// P2: Suggestion Engine — nút "Xin gợi ý (P2)" bên dưới gọi `pushFromState()` (Policy đọc
-  /// trạng thái hội thoại từ chính state machine P1B). Nút thật + nudge hiển thị nghiêm túc là
-  /// việc của P3 (kèm Offline Nudge Cache).
-  late final SuggestionService _suggestion = SuggestionService();
+  /// P3: **điểm vào duy nhất** cho mọi nguồn trigger (nút nổi, nút chẩn đoán, sau này là thông báo/
+  /// volume key). Trigger lo mốc Push (P1E) → Suggestion Engine → Offline Cache → giao nudge theo
+  /// chế độ output đã chọn. KHÔNG cooldown cho Push thủ công (chỉ debounce trong Policy).
+  late final TriggerManager _trigger = TriggerManager();
   SuggestionResult? _lastSuggestion;
+  EffectiveNudgeOutput? _lastDelivery;
+  NudgeOutputMode _outputMode = OutputModeSelector.defaultMode;
+
+  /// P3 mục 4.8: tốc độ đọc TTS (0.9x-1.2x, mặc định 1.05x) — nạp từ bảng `meta` khi mở màn hình.
+  double _speechRate = OutputConfig.defaultSpeechRate;
   bool _suggesting = false;
 
   AsrEngine? _asr;
@@ -107,6 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _listenInfrastructure();
     unawaited(_loadAsrConfig());
     unawaited(_refreshTts());
+    unawaited(_loadOutputSettings()); // P3: chế độ hiển thị + tốc độ đọc đã lưu.
   }
 
   /// Đăng ký mọi nguồn sự kiện hạ tầng (F4). Mỗi nguồn bọc riêng: một mảnh lỗi không cản mảnh
@@ -359,29 +368,126 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// P2: xin gợi ý qua nút Push tạm. Policy chặn CỨNG trước khi gọi LLM; mọi lỗi đã được quy về
-  /// `NO_SUGGESTION` ở tầng service nên KHÔNG cần try/catch — kết quả luôn về (nudge hoặc không).
-  Future<void> _requestSuggestion() async {
+  /// P3: xin gợi ý qua [TriggerManager] — CÙNG một đường với nút nổi (không có logic riêng cho
+  /// từng nguồn). Không bao giờ ném: mọi lỗi đã được quy về `NO_SUGGESTION`/nudge cache.
+  Future<void> _requestSuggestion({SuggestTriggerSource source = SuggestTriggerSource.diagnosticButton}) async {
     setState(() => _suggesting = true);
     try {
-      // Một lần Push thật = ghi mốc Push (P1E) + xin gợi ý: prompt khung cần "Mốc Push gần nhất"
-      // để LLM biết lượt nói của người dùng có khả năng vừa kết thúc quanh đó. Ghi mốc lỗi không
-      // được chặn việc xin gợi ý.
-      try {
-        await _transcript.markPushMoment(DateTime.now());
-      } catch (error) {
-        _log.warn('không ghi được mốc Push: $error');
+      final TriggerOutcome outcome = await _trigger.onSuggestRequested(source: source);
+      _log.info('Push gợi ý: $outcome');
+      if (!mounted) {
+        return;
       }
-      final SuggestionResult result = await _suggestion.pushFromState();
-      _log.info('Push gợi ý: $result');
-      if (mounted) {
-        setState(() => _lastSuggestion = result);
+      setState(() {
+        _lastSuggestion = outcome.result;
+        _lastDelivery = outcome.delivery == null ? null : outcome.effectiveMode;
+      });
+      if (outcome.hasNudge) {
+        // Chế độ chữ (Silent, hoặc Ear bị hạ cấp) cần hiện nội dung nudge — đây chính là "nudge
+        // dạng chữ trên UI" mà P1F yêu cầu khi không đọc được qua tai nghe.
+        _enqueueSnack(
+          outcome.delivery == NudgeDeliveryResult.spoken
+              ? 'Nudge (đã đọc qua tai nghe): "${outcome.result.text}"'
+              : 'Nudge: "${outcome.result.text}" (${outcome.result.type!.apiName})',
+        );
       }
     } finally {
       if (mounted) {
         setState(() => _suggesting = false);
       }
     }
+  }
+
+  /// P3 task 2: gesture giữ 2 giây trên nút nổi → Emergency Phrase (KHÔNG qua LLM/Policy).
+  Future<void> _requestEmergency() async {
+    final EmergencyTriggerResult result = await _trigger.onEmergencyRequested();
+    _log.info('emergency qua nút nổi: $result');
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// P3 task 3: đổi chế độ hiển thị nudge (ghi vào bảng `meta`, đổi được không cần build lại).
+  Future<void> _selectOutputMode(NudgeOutputMode? mode) async {
+    if (mode == null || mode == _outputMode) {
+      return;
+    }
+    setState(() => _outputMode = mode);
+    await _trigger.outputModes.write(mode);
+    _enqueueSnack('Chế độ gợi ý: ${mode.label}');
+  }
+
+  Future<void> _loadOutputSettings() async {
+    final NudgeOutputMode mode = await _trigger.outputModes.read();
+    final double rate = await _trigger.outputModes.readSpeechRate();
+    if (mounted) {
+      setState(() {
+        _outputMode = mode;
+        _speechRate = rate;
+      });
+    }
+  }
+
+  /// P3 (bổ sung nhỏ để DoD-1 chạy được trên máy thật): mở hộp thoại nhập **API key Groq**.
+  ///
+  /// Vì sao cần: từ P2, `GroqLlmProvider` đọc key từ `SecureStore`, nhưng KHÔNG có chỗ nào trong
+  /// app ghi vào — nghĩa là máy thật không thể có nudge thật từ LLM (DoD-1 của P2 lẫn P3 đều bị
+  /// chặn ở đúng bước "nuôi key"). Hộp thoại này chỉ ghi vào keystore OS.
+  ///
+  /// Không log giá trị key (ràng buộc: không secret trong log/SQLite).
+  Future<void> _editApiKey() async {
+    // Cố ý dùng `onChanged` thay vì `TextEditingController`: dialog chỉ biến mất sau animation, nên
+    // dispose controller ngay sau `showDialog` sẽ làm `TextField` (còn đang trong cây) đọc controller
+    // đã hủy — lỗi kinh điển của Flutter. Cách này không có gì để dispose.
+    String typed = '';
+    final String? entered = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('API key LLM (Groq)'),
+        content: TextField(
+          autofocus: true,
+          obscureText: true,
+          onChanged: (String value) => typed = value,
+          decoration: const InputDecoration(
+            labelText: 'gsk_...',
+            helperText: 'Chỉ lưu trong keystore của máy (SecureStore), không vào SQLite/log.',
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Huỷ'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(typed.trim()),
+            child: const Text('Lưu'),
+          ),
+        ],
+      ),
+    );
+    if (entered == null || entered.isEmpty || !mounted) {
+      return;
+    }
+    try {
+      await SecureStore.saveLlmApiKey(entered);
+      _log.info('đã lưu API key LLM vào SecureStore (không ghi giá trị)');
+      _enqueueSnack('Đã lưu API key — bấm Gợi ý để gọi LLM thật.');
+    } catch (error) {
+      _log.warn('không lưu được API key: $error');
+      _enqueueSnack('Không lưu được API key: $error');
+    }
+    await _refreshStatus();
+  }
+
+  /// P3 mục 4.8: lưu tốc độ đọc TTS. Chỉ gọi khi người dùng **nhả** thanh trượt (`onChangeEnd`) —
+  /// ghi SQLite mỗi bước kéo sẽ đập vào DB vô ích mà không ai đọc.
+  Future<void> _saveSpeechRate(double rate) async {
+    final double normalized = OutputConfig.clampSpeechRate(rate);
+    setState(() => _speechRate = normalized);
+    await _trigger.outputModes.writeSpeechRate(normalized);
+    // `SafeTtsOutput` không giữ cấu hình tốc độ (đọc mỗi lần phát từ `TriggerManager`), nên ở đây
+    // không cần đồng bộ gì thêm — lần đọc kế tiếp đã dùng giá trị mới.
+    _enqueueSnack('Tốc độ đọc: ${normalized.toStringAsFixed(2)}x');
   }
 
   /// Hàng đợi SnackBar: mọi lỗi/tiến trình đi qua đây để không tự ý gọi `context` sau khi
@@ -509,6 +615,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Trợ lý giao tiếp')),
+      // P3 task 1: nút nổi TRONG APP (fallback chắc chắn nhất, không cần quyền hệ thống).
+      floatingActionButton: SuggestFloatingButton(
+        enabled: !_suggesting,
+        onSuggest: () => _requestSuggestion(source: SuggestTriggerSource.floatingButton),
+        onEmergency: _requestEmergency,
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: <Widget>[
@@ -585,14 +697,58 @@ class _HomeScreenState extends State<HomeScreen> {
             label: const Text('Emergency Phrase (P1G)'),
           ),
           const SizedBox(height: 8),
-          // P2: nút Push tạm (nút thật là P3). Policy chặn CỨNG userSpeaking trước khi gọi LLM;
-          // chưa có API key thì provider tự ném ⇒ quy về NO_SUGGESTION kèm note (không crash).
+          // P3: nút chẩn đoán đi CÙNG đường với nút nổi (cùng `TriggerManager.onSuggestRequested`).
+          // Policy chặn CỨNG userSpeaking trước khi gọi LLM; không có API key/mất mạng thì Offline
+          // Cache tiếp quản nên vẫn có nudge.
           OutlinedButton.icon(
             onPressed: _suggesting ? null : () => unawaited(_requestSuggestion()),
             icon: const Icon(Icons.lightbulb_outline),
-            label: const Text('Xin gợi ý (P2)'),
+            label: const Text('Xin gợi ý (P3)'),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
+          // P3 task 3: chọn chế độ hiển thị nudge (Settings tối thiểu — màn hình cài đặt thật là P5/P7).
+          DropdownButtonFormField<NudgeOutputMode>(
+            key: ValueKey<NudgeOutputMode>(_outputMode),
+            initialValue: _outputMode,
+            decoration: const InputDecoration(
+              labelText: 'Chế độ hiển thị gợi ý',
+              border: OutlineInputBorder(),
+            ),
+            items: NudgeOutputMode.values
+                .map((NudgeOutputMode mode) => DropdownMenuItem<NudgeOutputMode>(
+                      value: mode,
+                      child: Text(mode.label),
+                    ))
+                .toList(),
+            onChanged: _selectOutputMode,
+          ),
+          const SizedBox(height: 8),
+          // P3: cấu hình key LLM (P2 chỉ đọc key từ SecureStore, chưa có chỗ ghi ⇒ máy thật không
+          // thể có nudge thật). Nút này là điều kiện để chạy DoD-1 trên máy.
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => unawaited(_editApiKey()),
+            icon: const Icon(Icons.key_outlined),
+            label: const Text('Nhập API key LLM (Groq)'),
+          ),
+          const SizedBox(height: 8),
+          // P3 task 3 (mục 4.8): tốc độ đọc TTS 0.9x-1.2x, mặc định 1.05x.
+          Row(
+            children: <Widget>[
+              Expanded(child: Text('Tốc độ đọc: ${_speechRate.toStringAsFixed(2)}x')),
+              Text('${OutputConfig.minSpeechRate.toStringAsFixed(1)}x'),
+            ],
+          ),
+          Slider(
+            value: _speechRate,
+            min: OutputConfig.minSpeechRate,
+            max: OutputConfig.maxSpeechRate,
+            // 6 bước ⇒ đúng lưới 0.05x trong khoảng 0.9-1.2.
+            divisions: 6,
+            label: '${_speechRate.toStringAsFixed(2)}x',
+            onChanged: (double value) => setState(() => _speechRate = value),
+            onChangeEnd: (double value) => unawaited(_saveSpeechRate(value)),
+          ),
+          const SizedBox(height: 16),
           _statusCard(),
         ],
       ),
@@ -638,7 +794,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _infoRow('TTS', _ttsText()),
             _infoRow('Emergency', _emergencyText()),
             _infoRow('Nhận dạng', _lastTranscript),
-            _infoRow('Gợi ý (P2)', _suggestionText()),
+            _infoRow('Gợi ý (P3)', _suggestionText()),
             _infoRow('Transcript', _transcriptText()),
             _infoRow('Push gần nhất', _pushText()),
             _infoRow('Lưu trữ', _databaseStatus),
@@ -696,12 +852,15 @@ class _HomeScreenState extends State<HomeScreen> {
   String _suggestionText() {
     final SuggestionResult? result = _lastSuggestion;
     if (result == null) {
-      return 'chưa bấm Push';
+      return 'chưa bấm Push · chế độ ${_outputMode.label}';
     }
+    final String source = result.source == NudgeSource.cache ? ' · CACHE OFFLINE' : '';
+    final String via = _lastDelivery == null ? '' : ' · ${_lastDelivery!.name}';
     if (result.isNudge) {
-      return '${result.type!.apiName}: "${result.text}"';
+      return '${result.type!.apiName}: "${result.text}"$source$via';
     }
-    return 'NO_SUGGESTION${result.note == null ? '' : ' · ${result.note}'}';
+    return 'NO_SUGGESTION${result.note == null ? '' : ' · ${result.note}'}'
+        '${result.unavailable ? ' · LLM không dùng được' : ''}';
   }
 
   /// Mốc Push gần nhất (P1E) — P2 sẽ đưa mốc này vào prompt LLM.

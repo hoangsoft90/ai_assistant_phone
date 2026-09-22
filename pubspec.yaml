@@ -99,6 +99,10 @@ flutter:
   assets:
     - assets/models/ggml-phowhisper-tiny-q5_0.bin
 
+    # P3 — Offline Nudge Cache (mục 4.12): 72 câu nudge chung (12 × 6 type), CHỈ dùng khi
+    # không gọi được LLM (timeout/mất mạng). Sửa câu chỉ cần sửa file này rồi cài lại app.
+    - assets/offline_nudge_cache.json
+
     # P1D — KHÔNG khai báo model Vosk ở đây (khác model PhoWhisper ở trên), CÓ CHỦ Ý:
     # - Model Vosk (zip 32MB) không commit vào git (máy dev chỉ còn ~150MB đĩa) nên file không có
     #   ở máy dev; mà asset khai báo trong pubspec MÀ THIẾU FILE thì `flutter test` fail ngay

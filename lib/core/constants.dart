@@ -79,3 +79,42 @@ abstract final class SuggestionConfig {
   /// Endpoint Groq chat completions (OpenAI-compatible, xác minh từ tài liệu chính thức 2026-09).
   static const String groqEndpoint = 'https://api.groq.com/openai/v1/chat/completions';
 }
+
+/// Cấu hình Trigger + Output Mode (P3).
+abstract final class TriggerConfig {
+  /// Giữ nút nổi bao lâu thì tính là gesture Emergency (prompt P3 task 2: 2 giây).
+  /// Ngắn hơn [emergencyHold] ⇒ Push thường; đủ [emergencyHold] ⇒ Emergency Phrase.
+  static const Duration emergencyHold = Duration(seconds: 2);
+}
+
+/// Cấu hình chế độ hiển thị nudge (P3 mục 4.8).
+abstract final class OutputConfig {
+  /// Khoá lưu chế độ output trong bảng `meta` (dùng lại `ConfigStore` như P1D).
+  static const String modeKey = 'nudge_output_mode';
+
+  /// Asset kho nudge offline (P3 mục 4.12).
+  static const String offlineNudgeCacheAsset = 'assets/offline_nudge_cache.json';
+
+  /// Khoảng tốc độ đọc TTS cho phép + mặc định (theo mục 4.8).
+  ///
+  /// Đã nối tới native từ P3 (`TextToSpeech.setSpeechRate` trong `SafeTtsBridge.kt`), nhưng
+  /// **chưa verify trên máy thật** — xem K41 ở `checklist.md`.
+  static const double minSpeechRate = 0.9;
+  static const double maxSpeechRate = 1.2;
+  static const double defaultSpeechRate = 1.05;
+
+  /// Khoá lưu tốc độ đọc TTS (bảng `meta`, cùng chỗ với [modeKey]).
+  static const String speechRateKey = 'tts_speech_rate';
+
+  /// Chuẩn hoá tốc độ đọc về khoảng cho phép.
+  ///
+  /// Một chỗ DUY NHẤT định nghĩa ràng buộc 0.9x-1.2x, dùng chung cho cả tầng cấu hình (đọc từ
+  /// `meta`) và tầng phát (`SafeTtsOutput`): giá trị hỏng (NaN/Infinity/nằm ngoài khoảng) không được
+  /// làm native nhận một tốc độ lạ, cũng không được làm UI hiển thị số vô nghĩa.
+  static double clampSpeechRate(double value) {
+    if (!value.isFinite) {
+      return defaultSpeechRate;
+    }
+    return value.clamp(minSpeechRate, maxSpeechRate).toDouble();
+  }
+}

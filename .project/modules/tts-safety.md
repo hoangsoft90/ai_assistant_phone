@@ -40,7 +40,7 @@ Android chuyển route media về **loa ngoài** ⇒ đúng thứ phải chặn.
 | Chiều | Method | Ý nghĩa |
 |---|---|---|
 | Dart → native | `outputState` | Trả `{hasPrivateOutput, preferred, devices[]}` — **đọc tươi**, không cache |
-| Dart → native | `speak {text}` | `"synthesizing"` (đã bắt đầu tổng hợp) · `"noHeadset"` (từ chối + đã rung) · `"error:<chi tiết>"` |
+| Dart → native | `speak {text, rate?}` | `"synthesizing"` (đã bắt đầu tổng hợp) · `"noHeadset"` (từ chối + đã rung) · `"error:<chi tiết>"`. `rate` là khoá **tuỳ chọn** của P3 (tốc độ đọc 0.9–1.2x, kẹp ở cả hai phía); thiếu khoá ⇒ không đụng tốc độ |
 | Dart → native | `stop` | Trả `true` nếu trước đó thực sự đang phát/tổng hợp |
 | Dart → native | `vibrateFallback` | Rung 1 nhịp ngắn khi **Dart** tự phát hiện không có tai nghe (khi đó native không được gọi `speak`) |
 | native → Dart | `event {type, …}` | `headsetFound` · `headsetLost` · `spoke` · `error` |
@@ -64,12 +64,14 @@ cách chọn messenger (xem mục 7).
 | A8 | `setPreferredDevice` bị từ chối ⇒ **không phát** | Kotlin `playSynthesized()` |
 | A9 | Sự kiện native sai dạng ⇒ coi là `headsetLost` (không bỏ qua) | `eventFromNative()` · test `sự kiện sai dạng…` |
 | A10 | Không dùng `USAGE_VOICE_COMMUNICATION` / `setCommunicationDevice` (kéo HFP/SCO) | Kotlin `AudioAttributes` builder · rà bằng grep |
+| A11 | Tốc độ đọc sai/hỏng (ngoài 0.9–1.2, `NaN`, sai kiểu) **không** được làm hỏng việc phát — chỉ kẹp hoặc bỏ qua | `OutputConfig.clampSpeechRate` + Kotlin `speak()`/`coerceIn` · test `giá trị NGOÀI khoảng bị kẹp…` |
 
 ## 5. Quy tắc bắt buộc khi sửa module này
 
 1. **Mọi** phát âm thanh của app phải qua `SafeTtsOutput`. Kiểm bằng:
    `grep -rn "\.speak(" lib/` ⇒ chỉ được thấy trong `safe_tts_output.dart` (gọi client) và nơi gọi
-   `SafeTtsOutput`.
+   `SafeTtsOutput` (`nudge_delivery.dart`, `emergency/emergency_phrase_service.dart`, nút đọc thử trên
+   màn hình chẩn đoán).
 2. Không thêm nhánh nào có thể phát khi trạng thái không chắc chắn (kể cả "thử phát rồi xem sao").
 3. Sửa bất kỳ dòng nào trong đường phát ⇒ chạy lại 3 test case bắt buộc trên máy thật (mục 6).
 4. Đây là **vùng loại trừ Ponytail** (`operating_rules.md` rule 15): không tự commit, phải trình bày
@@ -98,6 +100,12 @@ Với tai nghe có dây, log của test case 1 sẽ đi qua **`becomingNoisy`** 
   vừa mất tai nghe). Không phải "pattern" tuỳ biến sâu hơn.
 - **Half-duplex CHƯA làm ở đây** (ràng buộc #5 của `.project/overview.md`): module không giữ tham
   chiếu tới tầng capture, nên chưa chặn "đang thu mà phát TTS". Việc ghép thu/phát là P4.
-- **Nudge chữ hiện chỉ hiện trên màn hình chẩn đoán** (SnackBar + dòng `TTS`); notification thật là P3.
-- **TTS chỉ chạy ở engine UI**: nếu app ở nền mà cần phát (P3/P4), phải đổi cách chọn messenger.
-- Chưa xác minh được trên máy thật lần nào (xem `.plan/P1F-result.md`).
+- **Nudge chữ hiện chỉ hiện trên màn hình chẩn đoán** (SnackBar + dòng `TTS`/`Gợi ý`); kênh hiển
+  thị thật (overlay/notification) chưa có — nợ **K43**.
+- **TTS chỉ chạy ở engine UI**: nếu app ở nền mà cần phát (P4/K43), phải đổi cách chọn messenger.
+- **Tốc độ đọc (P3) chưa verify trên máy**: `setSpeechRate` đã nối tới native nhưng chưa xác nhận
+  giọng đọc thật sự đổi ở 0,9x/1,2x (nợ **K41**). Lưu ý `setSpeechRate` là **cấu hình dính** của
+  engine: đường Emergency gọi `speak(text, rate=null)` nên nó giữ tốc độ của lần đọc trước đó.
+- **Đã xác minh MỘT PHẦN trên máy thật (2026-09-22)**: phát đầu-cuối ✅ (user nghe rõ), phát hiện
+  mất tai nghe + rung 2 nhịp ✅; **còn** rút-giữa-lúc-đang-phát, TC2, TC3 (nợ **K34**), và phát hiện
+  **K37** (đòi xác nhận mỗi lần mở app khi tai nghe đã cắm sẵn). Chi tiết: `.plan/P1F-result.md`.

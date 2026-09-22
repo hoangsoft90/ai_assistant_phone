@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../../core/app_logger.dart';
+import '../../core/constants.dart';
 import 'tts_channels.dart';
 import 'tts_client.dart';
 
@@ -128,8 +129,13 @@ class SafeTtsOutput {
 
   /// Phát [text] qua tai nghe, hoặc **không phát gì** nếu không đủ điều kiện an toàn.
   ///
+  /// [speechRate] — tốc độ đọc đã cấu hình (mục 4.8, 0.9x-1.2x). `null` ⇒ tốc độ mặc định của
+  /// engine. Giá trị ngoài khoảng/không hợp lệ được chuẩn hoá ở đây ([OutputConfig.clampSpeechRate])
+  /// chứ **không** từ chối phát: tốc độ sai là lỗi nhỏ, còn "im lặng vì một tham số lạ" là lỗi lớn
+  /// hơn nhiều với người dùng.
+  ///
   /// Không bao giờ ném ra ngoài: mọi lỗi đều thành [TtsSpeakResult.failed] + im lặng.
-  Future<TtsSpeakResult> speak(String text) async {
+  Future<TtsSpeakResult> speak(String text, {double? speechRate}) async {
     if (text.trim().isEmpty) {
       _log.warn('bỏ qua yêu cầu đọc vì text rỗng');
       return TtsSpeakResult.failed;
@@ -153,7 +159,10 @@ class SafeTtsOutput {
 
     // 4) Đủ điều kiện. Native vẫn kiểm tra lại lần nữa rồi mới tổng hợp (phòng thủ 2 lớp).
     try {
-      final TtsNativeSpeakResult outcome = await _client.speak(text);
+      final TtsNativeSpeakResult outcome = await _client.speak(
+        text,
+        rate: speechRate == null ? null : OutputConfig.clampSpeechRate(speechRate),
+      );
       switch (outcome.status) {
         case TtsNativeSpeakStatus.synthesizing:
           _speaking = true;

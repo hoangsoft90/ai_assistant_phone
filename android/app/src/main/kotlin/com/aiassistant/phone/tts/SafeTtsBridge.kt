@@ -31,6 +31,10 @@ import java.util.concurrent.atomic.AtomicInteger
 
 private const val TAG = "SafeTts"
 
+/** Khoảng tốc độ đọc cho phép (P3 mục 4.8: 0.9x-1.2x) — kẹp ở native như lớp phòng thủ thứ hai. */
+private const val MIN_SPEECH_RATE = 0.9
+private const val MAX_SPEECH_RATE = 1.2
+
 /**
  * Engine TTS AN TOÀN (P1F) — toàn bộ việc phát âm thanh của app đi qua đây.
  *
@@ -261,9 +265,14 @@ class SafeTtsEngine(
      * - `"synthesizing"` — đã bắt đầu tổng hợp; phát xong sẽ báo qua event `spoke`.
      * - `"error:<mô tả>"` — không phát gì.
      *
+     * [rate] — tốc độ đọc (P3 mục 4.8). `null` ⇒ **không đụng** tới tốc độ (engine giữ giá trị đã đặt
+     * ở lần trước, hoặc mặc định của engine nếu chưa từng đặt — `setSpeechRate` là cấu hình dính).
+     * Giá trị ngoài khoảng bị kẹp. Đây chỉ là tham số chất lượng, **không** phải điều kiện an toàn,
+     * nên không được phép làm hỏng việc phát (khác hẳn mọi nhánh fail-safe khác trong file này).
+     *
      * Luôn gọi trên main thread (handler của MethodChannel).
      */
-    fun speak(text: String): String {
+    fun speak(text: String, rate: Double?): String {
         if (text.isBlank()) {
             return "error:text rỗng"
         }
@@ -286,7 +295,20 @@ class SafeTtsEngine(
             return "error:TTS chưa sẵn sàng, thử lại sau 1-2 giây"
         }
 
-        // 3) Chốt thế hệ để file tổng hợp xong muộn không bị phát oan.
+        // 3) Tốc độ đọc: đặt NGAY TRƯỚC khi tổng hợp (setSpeechRate là cấu hình của engine, áp cho
+        //    cả `synthesizeToFile`). Kẹp về khoảng hợp lệ để một giá trị lạ từ Dart không tạo ra
+        //    giọng đọc không hiểu được; lỗi ở đây chỉ log, KHÔNG chặn phát.
+        if (rate != null && rate.isFinite()) {
+            val clamped = rate.coerceIn(MIN_SPEECH_RATE, MAX_SPEECH_RATE)
+            try {
+                engine.setSpeechRate(clamped.toFloat())
+                Log.i(TAG, "tốc độ đọc: $clamped")
+            } catch (t: Throwable) {
+                Log.w(TAG, "không đặt được tốc độ đọc (${t.message}) — dùng tốc độ mặc định")
+            }
+        }
+
+        // 4) Chốt thế hệ để file tổng hợp xong muộn không bị phát oan.
         val gen = generation.incrementAndGet()
         stopPlaybackInternal(keepGeneration = true)
         synthesizing = true
@@ -686,7 +708,7 @@ internal class WavData(
  * Đăng ký kênh TTS `com.aiassistant.phone/tts` cho một FlutterEngine.
  *
  * Hợp đồng (khớp `TtsChannels`/`NativeTtsClient` phía Dart):
- * - Dart→native: `outputState` · `speak {text}` · `stop` · `vibrateFallback`.
+ * - Dart→native: `outputState` · `speak {text, rate?}` · `stop` · `vibrateFallback`.
  * - native→Dart: method `event` {type, ...} với `type` ∈
  *   `headsetFound` · `headsetLost` · `spoke` · `error`.
  *
@@ -730,7 +752,13 @@ object SafeTtsChannelBridge {
                     "outputState" -> result.success(current.outputState())
                     "speak" -> {
                         val text = call.argument<String>("text") ?: ""
-                        result.success(current.speak(text))
+                        // Khoá `rate` là TUỲ CHỌN (P3): thiếu ⇒ giữ tốc độ đang đặt của engine.
+                        // Đọc qua `Number` thay vì `Double`: nếu phía Dart lỡ gửi số nguyên (1 thay vì
+                        // 1.0) thì `argument<Double>` sẽ ném ClassCastException ⇒ Dart coi như lỗi
+                        // kênh ⇒ **không đọc được gì cả**. Sai kiểu một tham số chất lượng không đáng
+                        // đánh đổi cả việc đọc.
+                        val rate = (call.argument<Any>("rate") as? Number)?.toDouble()
+                        result.success(current.speak(text, rate))
                     }
                     "stop" -> result.success(current.stop())
                     "vibrateFallback" -> {

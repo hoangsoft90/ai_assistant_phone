@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "notes": "Offline Nudge Cache (P3, mục 4.12). Dùng khi Suggestion Engine KHÔNG gọi được LLM (timeout/mất mạng/lỗi). Nudge phải chung chung, 2-4 từ, KHÔNG nêu chủ đề cụ thể (không biết nội dung hội thoại). Sửa câu ở đây không cần build lại code — chỉ cần cài lại app.",
+  "nudges": {
+    "ASK": [
+      "Hỏi thêm đi",
+      "Hỏi về gia đình",
+      "Hỏi sở thích bạn",
+      "Hỏi dạo gần đây",
+      "Hỏi công việc",
+      "Hỏi kế hoạch tuần",
+      "Hỏi quê ở đâu",
+      "Hỏi món khoái khẩu",
+      "Hỏi hay đi đâu",
+      "Hỏi sắp tới",
+      "Hỏi hay xem gì",
+      "Hỏi thêm chuyện đó"
+    ],
+    "FOLLOW_UP": [
+      "Hỏi tiếp chuyện đó",
+      "Rồi sao nữa",
+      "Kể tiếp đi",
+      "Đào sâu thêm chút",
+      "Hỏi vì sao vậy",
+      "Hỏi lúc đó",
+      "Hỏi cảm giác bạn",
+      "Hỏi kết quả",
+      "Hỏi khó khăn",
+      "Hỏi làm cách nào",
+      "Hỏi mất bao lâu",
+      "Hỏi rút ra gì"
+    ],
+    "RELATE": [
+      "Mình cũng từng vậy",
+      "Kể chuyện giống vậy",
+      "Đồng cảm chuyện đó",
+      "Chia sẻ trải nghiệm",
+      "Liên hệ chuyện mình",
+      "Nói mình hiểu mà",
+      "Kể lần mình gặp",
+      "Cũng từng lo vậy",
+      "Kể chuyện tương tự",
+      "Gật đầu đồng cảm",
+      "Nói thấy quen quen",
+      "Mình từng trải qua"
+    ],
+    "REACT": [
+      "Ừ thú vị đó",
+      "Nghe hay đấy",
+      "Chà, căng nhỉ",
+      "Vui đấy nhỉ",
+      "Công nhận khó thật",
+      "Ừ, hợp lý",
+      "Nghe ổn đấy",
+      "Hay đấy nhỉ",
+      "Thú vị thật đấy",
+      "Ừ, đáng để thử",
+      "Chà, bất ngờ nhỉ",
+      "Nghe hợp lý đó"
+    ],
+    "CLARIFY": [
+      "Ý bạn là sao",
+      "Mình chưa hiểu lắm",
+      "Nói rõ thêm nhé",
+      "Hỏi lại cho rõ",
+      "Là như thế nào",
+      "Bạn nói kỹ hơn",
+      "Mình hiểu đúng không",
+      "Nghĩa là sao nhỉ",
+      "Giải thích thêm chút",
+      "Hỏi lại ý chính",
+      "Cụ thể là gì",
+      "Mình chưa nắm rõ"
+    ],
+    "CHANGE_TOPIC": [
+      "Đổi chủ đề nhé",
+      "Hỏi chuyện khác đi",
+      "Chuyển chuyện vui vẻ",
+      "Hỏi về cuối tuần",
+      "Nói chuyện ăn uống",
+      "Hỏi chuyện đi chơi",
+      "Kể chuyện nhẹ nhàng",
+      "Hỏi về phim ảnh",
+      "Hỏi chuyện thể thao",
+      "Chuyện thư giãn nhé",
+      "Hỏi sở thích chung",
+      "Nói chuyện thời tiết"
+    ]
+  }
+}

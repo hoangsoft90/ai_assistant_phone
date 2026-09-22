@@ -100,7 +100,11 @@ abstract class TtsClient {
   Future<TtsOutputInfo> outputState();
 
   /// Yêu cầu native phát [text]. Native **kiểm tra lại thiết bị** một lần nữa trước khi tổng hợp.
-  Future<TtsNativeSpeakResult> speak(String text);
+  ///
+  /// [rate] — tốc độ đọc (đã chuẩn hoá về 0.9-1.2 ở tầng trên). `null` ⇒ **không gửi** tham số tốc độ:
+  /// native giữ tốc độ đang đặt của engine (mặc định của engine nếu chưa từng đặt) — đường cũ của
+  /// P1F vẫn nguyên vẹn nếu caller không quan tâm tốc độ.
+  Future<TtsNativeSpeakResult> speak(String text, {double? rate});
 
   /// Dừng ngay mọi thứ đang tổng hợp/đang phát. Trả `true` nếu trước đó thực sự có phát.
   Future<bool> stop();

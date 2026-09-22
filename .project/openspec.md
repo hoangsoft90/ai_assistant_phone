@@ -41,7 +41,7 @@ dự kiến là P1A/P1B.
 | P1F | TTS Output Safety Layer (A2DP-only) | 🟡 **code xong + test MỘT PHẦN trên máy thật** (2026-09-22: phát đầu-cuối ✅, mất-tai-nghe+rung ✅ — `.plan/P1F-result.md`); còn rút-mid/TC2/TC3 — nợ K34 (thu hẹp), **K37 mới** |
 | P1G | Emergency Phrase (local) | 🟡 **code xong** (`lib/audio/emergency/`, 8 test mới — 130/130 pass, analyze sạch); chưa build/máy thật — xem `.plan/P1G-result.md` |
 | P2 | Suggestion Engine (LLM + Policy) | 🟡 **code xong** (`lib/suggestion/`, 29 test mới — 161/161 pass, analyze sạch); **prompt khung nguyên văn** đã đối chiếu từng dòng với `.plan/prompt_P2.md`; review lần 2 tìm + sửa **3 lỗi High** (bài học A50); chưa test máy thật — nợ **K39**, **K40** |
-| P3 | Trigger Abstraction + Output Modes + Offline Nudge Cache | ⬜ |
+| P3 | Trigger Abstraction + Output Modes + Offline Nudge Cache | 🟡 **code xong** (`lib/trigger/`, `lib/ui/floating_button.dart`, `output_mode_selector.dart`, `nudge_delivery.dart`, asset cache — 50 test mới: **211/211 pass**, analyze sạch); 6 lỗi + 2 thứ thừa (Ponytail) tự tìm khi review đã xử lý; chưa test máy thật — nợ **K41/K42/K43/K44**, đóng **K38/K40** |
 | P4 | Full Pipeline Integration (half-duplex) | ⬜ |
 | P5 | Pre-Brief + Post-Review + Coaching + Training Level | ⬜ |
 | P6 | Semi-auto Mode (tuỳ chọn) | ⬜ — cần dùng thực địa ≥2 tuần |
@@ -80,16 +80,24 @@ dự kiến là P1A/P1B.
 | **K35** | **Half-duplex chưa nối** (đang thu thì không phát TTS và ngược lại) — ràng buộc #5 của `overview.md`; `SafeTtsOutput` không giữ tham chiếu tới tầng capture. Việc ghép là P4 | 🟠 vừa | `.project/modules/tts-safety.md` mục 7 |
 | **K36** | **Giới hạn nhận dạng thiết bị + engine TTS**: (a) không phân biệt được tai nghe A2DP với loa Bluetooth A2DP (cùng `TYPE_BLUETOOTH_A2DP`) ⇒ loa BT cũng bị coi là "riêng tư"; (b) kênh TTS chỉ đăng ký cho engine UI nên chưa phát được khi app ở nền (P3/P4 cần) | 🟡 thấp | `.project/modules/tts-safety.md` mục 7 |
 | **K37** | **F-P1F-1 — đòi xác nhận sai:** callback đầu của `registerAudioDeviceCallback` (baseline khi đăng ký) bị Dart phân loại thành "kết nối lại" ⇒ **mỗi lần mở app có tai nghe cắm sẵn đều phải bấm "Xác nhận tai nghe" trước khi đọc được**. Fail-closed (an toàn) nhưng phiền; sửa = phân biệt baseline với reconnect thật | 🟠 vừa | `.plan/P1F-result.md` mục "Cập nhật sau buổi test qua adb" |
-| **K38** | **Emergency Phrase chưa có gesture thật** — hiện chỉ có nút tạm trên màn hình chẩn đoán; giữ-nút-nổi-2-giây là P3 | 🟡 thấp | `.plan/P1G-result.md` |
-| **K39** | **P2: 5 mục DoD chưa verify trên máy thật** — cần APK mới + **Groq API key lưu qua `SecureStore`** (chưa có UI nhập key; hiện phải lưu bằng code/adb). Cụ thể: (a) Push khi `notUserSpeaking` ⇒ nudge hiện trên UI; (b) Push khi `userSpeaking` ⇒ **không request nào đi** (kiểm bằng logcat + `dumpsys`); (c) anti-repetition 2 lần trong 2 phút; (d) ngắt mạng ⇒ `NO_SUGGESTION` sau ~4s, không treo; (e) JSON lỗi ⇒ không crash. | 🔴 cao (chặn chất lượng P2) | `.plan/P2-result.md` |
-| **K40** | **P2: chưa có Offline Nudge Cache (mục 4.12)** — mất mạng hiện chỉ fail gracefully về `NO_SUGGESTION`; cache nudge là việc của P3 | 🟠 vừa | `lib/suggestion/README.md` |
+| ~~K38~~ | ~~Emergency Phrase chưa có gesture thật~~ → **đóng ở P3**: nút nổi giữ **đúng 2 giây** (`lib/ui/floating_button.dart`, test đo mốc 2s); chỉ còn verify trên máy (K42) | ✅ xong | `.plan/P3-result.md` |
+| **K39** | **P2: 5 mục DoD chưa verify trên máy thật** — cần APK mới + **Groq API key lưu qua `SecureStore`**. ⚠️ P3 đã thêm **nút nhập key ngay trong app** (trước đó không có chỗ ghi key ⇒ DoD-1 bất khả thi trên máy). Cụ thể: (a) Push khi `notUserSpeaking` ⇒ nudge hiện trên UI; (b) Push khi `userSpeaking` ⇒ **không request nào đi** (kiểm bằng logcat + `dumpsys`); (c) anti-repetition 2 lần trong 2 phút; (d) ngắt mạng ⇒ `NO_SUGGESTION` sau ~4s, không treo; (e) JSON lỗi ⇒ không crash. | 🔴 cao (chặn chất lượng P2) | `.plan/P2-result.md` |
+| ~~K40~~ | ~~P2: chưa có Offline Nudge Cache (mục 4.12)~~ → **đóng ở P3**: 72 câu asset (`assets/offline_nudge_cache.json`), fallback **chỉ** khi không dùng được LLM, có đánh dấu nguồn `NudgeSource.cache` | ✅ xong | `.plan/P3-result.md` |
+| **K41** | **Tốc độ đọc TTS chưa verify trên máy** — `setSpeechRate` đã nối tới native (0.9–1.2x, mặc định 1.05x, kẹp ở 2 tầng) nhưng chưa xác nhận giọng đọc thật sự đổi. Lưu ý `setSpeechRate` là **cấu hình dính**: đường Emergency (`rate=null`) giữ tốc độ của lần đọc trước đó | 🟠 vừa | `.plan/P3-result.md` |
+| **K42** | **P3: 4 mục DoD chưa verify trên máy thật** — (a) nudge **thật** từ Groq qua nút nổi; (b) giữ đúng 2s trên máy ⇒ Emergency, thả sớm ⇒ Push; (c) cả 3 chế độ (rung thật / im lặng tuyệt đối / đọc qua tai nghe) + tốc độ 0,9x–1,2x nghe khác nhau; (d) **chế độ máy bay** ⇒ nudge từ Offline Cache (dòng `CACHE OFFLINE`). Unit test đã khoá logic (kể cả mốc 2 giây) nhưng không thay được cảm nhận/rung/âm thanh thật | 🔴 cao | `.plan/P3-result.md`, `.plan/prompt_P3.md` |
+| **K43** | **Trigger ngoài app chưa có**: volume key (cần override Activity; nếu vội ⇒ mỗi lần chỉnh âm lượng sẽ gọi LLM), nút tai nghe Bluetooth (`MediaSession`/`MediaButtonReceiver` + phát từ tiến trình nền ⇒ vướng K36), notification action (Kotlin `ListeningService` + gọi ngược vào Dart khi app ở nền). Đường nối đã sẵn: `SuggestTriggerSource` + **một** hàm `TriggerManager.onSuggestRequested` | 🟠 vừa | `.plan/P3-result.md` mục "Sai khác" 2 |
+| **K44** | **Offline Nudge Cache không theo chủ đề hội thoại** — câu trong cache là câu chung (khi LLM không trả về thì ta không biết nội dung để chọn theo chủ đề). Nếu dùng thật thấy vô dụng thì chốt lại ở P5 | 🟡 thấp | `.plan/P3-result.md` |
 
 ## 4. Todo ngay tiếp theo (thứ tự)
 
 1. **Tải APK debug mới nhất từ CI → cài máy thật → chạy 1 vòng protocol đo** cho **tất cả** phase
-   đang nợ: **P1F (3 test case TTS, K34)**, P0 Task 2/3 (K2), P1E (`am kill` + đổi ngày 8 ngày), P1D (2 engine, 45′), P1B (ngưỡng VAD bằng giọng thật),
-   P1A/P0.5 (quyền, FGS, DB, `becomingNoisy`), P0 (A2DP/HFP). Đây là điểm chặn chất lượng của 5 phase.
+   đang nợ: **P3 (K42/K41)**, **P2 (K39)**, **P1F (3 test case TTS, K34)**, P0 Task 2/3 (K2), P1E (`am kill` + đổi ngày 8 ngày), P1D (2 engine, 45′), P1B (ngưỡng VAD bằng giọng thật),
+   P1A/P0.5 (quyền, FGS, DB, `becomingNoisy`), P0 (A2DP/HFP). Đây là điểm chặn chất lượng của 6 phase.
+   Giáo trình gộp một lượt ~45′ nằm ở `next.md` mục "Buổi test máy thật sắp tới".
+   Làm **K37** (đòi xác nhận mỗi lần mở app) trước buổi test cho đỡ tốn thao tác tay.
 2. Vá ngưỡng/logic theo số liệu máy thật (VAD K15, engine mặc định K3/K18, Vosk K20/K21).
+2b. **K43** — trigger ngoài app (thông báo → volume key → nút tai nghe BT); bắt đầu từ notification
+   action, sau khi P4 có engine nền (K36).
 3. Chốt **K28** (có mã hoá DB transcript không) trước khi phát hành cho người khác dùng.
 4. Quyết định số phận `spikes/p0_audio/` (**K6**).
 5. Cân nhắc tạo OpenSpec change chính thức cho các capability đã code (baseline specs hiện chỉ có từ

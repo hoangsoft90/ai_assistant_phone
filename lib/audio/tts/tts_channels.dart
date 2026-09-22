@@ -24,8 +24,13 @@ class NativeTtsClient implements TtsClient {
       infoFromNative(await _control.invokeMethod<Object?>('outputState'));
 
   @override
-  Future<TtsNativeSpeakResult> speak(String text) async =>
-      speakResultFromNative(await _control.invokeMethod<Object?>('speak', <String, Object?>{'text': text}));
+  Future<TtsNativeSpeakResult> speak(String text, {double? rate}) async =>
+      speakResultFromNative(await _control.invokeMethod<Object?>('speak', <String, Object?>{
+        'text': text,
+        // Chỉ gửi `rate` khi có (`?rate` = bỏ hẳn khoá nếu null): không gửi khoá này thì native không
+        // đụng tới tốc độ — giữ y nguyên hợp đồng kênh của P1F cho caller không quan tâm tốc độ.
+        'rate': ?rate,
+      }));
 
   @override
   Future<bool> stop() async => await _control.invokeMethod<bool>('stop') ?? false;

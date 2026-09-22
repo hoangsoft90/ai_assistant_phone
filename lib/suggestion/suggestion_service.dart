@@ -3,6 +3,7 @@ import '../core/app_logger.dart';
 import '../transcript/transcript_store.dart';
 import 'groq_llm_provider.dart';
 import 'llm_provider.dart';
+import 'offline_nudge_cache.dart';
 import 'session_memory.dart';
 import 'suggestion_context_builder.dart';
 import 'suggestion_models.dart';
@@ -25,12 +26,14 @@ class SuggestionService {
     SuggestionContextBuilder? builder,
     SessionMemory? memory,
     TranscriptStore? transcript,
+    OfflineNudgeCache? cache,
     DateTime Function()? now,
   })  : _provider = provider ?? GroqLlmProvider(),
         _policy = policy ?? SuggestionPolicy(),
         _builder = builder ?? SuggestionContextBuilder(),
         _memory = memory ?? SessionMemory(),
         _transcript = transcript ?? TranscriptStore.instance(),
+        _cache = cache ?? OfflineNudgeCache.instance(),
         _now = now ?? DateTime.now;
 
   static const AppLogger _log = AppLogger('Suggestion');
@@ -40,12 +43,17 @@ class SuggestionService {
   final SuggestionContextBuilder _builder;
   final SessionMemory _memory;
   final TranscriptStore _transcript;
+  final OfflineNudgeCache _cache;
   final DateTime Function() _now;
 
   DateTime? _lastAttemptAt;
+  int _cacheFallbackCount = 0;
 
   /// Bộ nhớ phiên cho UI/test đọc (nudge đã hiển thị trong phiên).
   SessionMemory get memory => _memory;
+
+  /// Số lần đã phải lấy nudge từ Offline Cache (P3 mục 4.12: theo dõi tần suất fallback).
+  int get cacheFallbackCount => _cacheFallbackCount;
 
   /// Người dùng bấm Push (thủ công). Trả về kết quả để UI hiển thị; **KHÔNG bao giờ ném**
   /// (mọi nhánh lỗi — policy, transcript, mạng, timeout, JSON — đều quy về `NO_SUGGESTION`).
@@ -90,17 +98,17 @@ class SuggestionService {
     } on SuggestionException catch (error) {
       if (!error.retryable) {
         // Timeout/mất mạng/HTTP lỗi: retry chỉ nhân đôi thời gian chờ (vi phạm mục 6 "NO_SUGGESTION
-        // sau ~3-4s") ⇒ fail NGAY, không thử lại.
+        // sau ~3-4s") ⇒ fail NGAY, không thử lại — và đây chính là ca cần Offline Cache (P3).
         _log.warn('LLM lỗi (không retry): $error');
-        return SuggestionResult.noSuggestion(note: 'LLM lỗi: ${error.message}');
+        return _fallbackToCache(now: now, reason: error.message);
       }
       // JSON lỗi: retry đúng 1 lần (prompt P2 mục 5).
       _log.warn('output LLM lỗi lần 1: $error — thử lại 1 lần');
       try {
         result = await _generateOnce(context);
       } on SuggestionException catch (retryError) {
-        _log.warn('output LLM lỗi lần 2: $retryError — quy về NO_SUGGESTION');
-        return SuggestionResult.noSuggestion(note: 'LLM lỗi: ${retryError.message}');
+        _log.warn('output LLM lỗi lần 2: $retryError — chuyển sang Offline Cache');
+        return _fallbackToCache(now: now, reason: retryError.message);
       }
     }
 
@@ -120,8 +128,41 @@ class SuggestionService {
     // với transcript). Logcat chỉ ghi loại + trạng thái; nội dung đã hiện trên màn hình chẩn đoán.
     _log.info(
       result.isNudge
-          ? 'kết quả Push: NUDGE(${result.type!.apiName})'
-          : 'kết quả Push: NO_SUGGESTION${result.note == null ? '' : ' (${result.note})'}',
+          ? 'kết quả Push: NUDGE(${result.type!.apiName}'
+              '${result.source == NudgeSource.cache ? ', CACHE' : ''})'
+          : 'kết quả Push: NO_SUGGESTION'
+              '${result.note == null ? '' : ' (${result.note})'}'
+              '${result.unavailable ? ' · LLM không dùng được' : ''}',
+    );
+    return result;
+  }
+
+  /// Fallback **Offline Nudge Cache** (P3 mục 4.12) — CHỈ gọi khi không dùng được LLM.
+  ///
+  /// Không được gọi cho: (a) Policy chặn (đang nói / debounce), (b) LLM trả `NO_SUGGESTION` hợp lệ,
+  /// (c) nudge bị lọc vì lặp lại — ba ca đó là quyết định "không gợi ý", KHÔNG phải "không hỏi
+  /// được LLM". Cache cũng không bao giờ thay thế LLM khi có mạng (constraint P3).
+  Future<SuggestionResult> _fallbackToCache({required DateTime now, required String reason}) async {
+    _cacheFallbackCount++;
+    final List<String> avoid = _memory
+        .recentForRepetition(now)
+        .map((SuggestionRecord r) => r.text)
+        .toList();
+    final CachedNudge? cached = await _cache.pickNext(avoidTexts: avoid);
+    if (cached == null) {
+      _log.warn('LLM không dùng được và Offline Cache cũng không có nudge ($reason)');
+      return SuggestionResult.noSuggestion(note: 'LLM lỗi: $reason', unavailable: true);
+    }
+    final SuggestionResult result = SuggestionResult.nudge(
+      type: cached.type,
+      text: cached.text,
+      source: NudgeSource.cache,
+      note: 'offline cache ($reason)',
+    );
+    _memory.record(result, at: now);
+    _log.warn(
+      'LLM không dùng được ⇒ nudge từ OFFLINE CACHE (${cached.type.apiName}) · '
+      'lần fallback thứ $_cacheFallbackCount · lý do: $reason',
     );
     return result;
   }

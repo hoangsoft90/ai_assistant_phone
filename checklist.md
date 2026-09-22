@@ -243,7 +243,9 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
   không có AudioTrack nào được tạo. (user dừng buổi test trước khi tới case này)
 - [ ] **Test case 3:** tắt kết nối Bluetooth trong Cài đặt **giữa lúc đang đọc** — chưa có tai nghe BT.
 - [ ] **K37 — F-P1F-1:** callback baseline của `registerAudioDeviceCallback` bị coi là "kết nối lại"
-  ⇒ mỗi lần mở app có tai nghe sẵn đều đòi bấm Xác nhận. Sửa trước P3.
+  ⇒ mỗi lần mở app có tai nghe sẵn đều đòi bấm Xác nhận. **Chưa sửa** (P3 làm xong mà không đụng tới,
+  vì đây là đường an toàn của P1F); vẫn đang làm mỗi buổi test máy thật tốn thêm 1 bước thủ công ⇒
+  nên sửa ngay trước buổi test gộp (K34/K39/K41/K42).
 
 ### Thuộc P1G (code xong 2026-09-22 — chưa build/máy thật)
 
@@ -252,7 +254,8 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
   đo `lastTriggerToSynthLatency`).
 - [x] 8 unit test mới (130/130 pass) — gồm: 0 network/LLM (grep), không tai nghe ⇒ 0 gọi native
   speak + 1 rung, xoay vòng, failed không retry.
-- [x] Nút tạm `Emergency Phrase (P1G)` + dòng `Emergency` trên màn hình chẩn đoán (gesture thật = P3).
+- [x] Nút tạm `Emergency Phrase (P1G)` + dòng `Emergency` trên màn hình chẩn đoán.
+- [x] **Gesture thật đã có ở P3:** giữ nút nổi đúng 2 giây (`lib/ui/floating_button.dart`, có test đo mốc 2s).
 - [ ] **Chạy trên máy thật:** phát được câu qua tai nghe + độ trễ đọc từ dòng Emergency; trigger khi
   KHÔNG tai nghe ⇒ im lặng + rung (chạy gộp với K34); rút tai nghe giữa lúc emergency đang đọc.
 
@@ -278,8 +281,40 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
   policy: userSpeaking` + không có kết nối ra ngoài).
 - [ ] **DoD-3 — anti-repetition:** bấm Push 2 lần trong 2 phút ⇒ lần 2 không trùng chủ đề/type (máy thật).
 - [ ] **DoD-4 — timeout:** ngắt mạng, bấm Push ⇒ app không treo, `NO_SUGGESTION` sau ~4s (máy thật).
-- [ ] **DoD-5 — JSON lỗi** ⇒ app không crash (đã có unit test mock; máy thật không cần lặp lại).
-- [ ] **K40 (🟠) — Offline Nudge Cache (mục 4.12):** chưa có, P3 làm.
+- [x] **DoD-5 — JSON lỗi** ⇒ app không crash (có unit test mock + 4 test regression cho H1/H2/H3; máy thật không cần lặp lại).
+- [x] ~~**K40 — Offline Nudge Cache (mục 4.12)**~~ → **đóng ở P3** (72 câu asset + fallback chỉ-khi-LLM-lỗi, có đánh dấu nguồn).
+- [ ] **DoD-1 nêu trên giờ có thêm điều kiện:** phải **nhập Groq API key** qua nút mới của P3 (trước đó không có chỗ ghi key ⇒ không thể có nudge thật).
+
+### Thuộc P3 (code xong 2026-09-22 — 211/211 test, chưa build/máy thật)
+
+> Nợ **K42**. Cách test: cài APK mới → nhập API key Groq → bấm **Xác nhận tai nghe** → chọn `Tai nghe (đọc)`
+> → bấm/giữ nút nổi, xem dòng `Gợi ý (P3)` trên màn hình chẩn đoán +
+> `adb logcat -v time -s Trigger:V NudgeDelivery:V OutputMode:V OfflineNudgeCache:V flutter:V`.
+
+- [x] `lib/trigger/trigger_manager.dart` — **điểm vào DUY NHẤT** cho mọi nguồn (grep: 1 nơi gọi);
+  mốc Push (P1E) ghi trước khi xin gợi ý; mốc lỗi KHÔNG chặn Push; không cooldown; không bao giờ ném.
+- [x] `lib/ui/floating_button.dart` — tap = Push, giữ **đúng 2s** = Emergency (đi thẳng, không LLM/Policy).
+- [x] `lib/audio/output_mode_selector.dart` + `nudge_delivery.dart` — 3 chế độ lưu bảng `meta`, Ear tự
+  hạ xuống chữ khi thiếu tai nghe, rung lỗi ⇒ hạ xuống chữ, không bao giờ ném.
+- [x] `assets/offline_nudge_cache.json` (72 câu = 12 × 6 type, mọi câu 2–4 từ) +
+  `lib/suggestion/offline_nudge_cache.dart` (xoay vòng, tránh câu vừa hiện, không bao giờ ném).
+- [x] 50 unit test mới: `floating_button_test` (9 — đo **đúng mốc 2 giây**), `trigger_manager_test` (16),
+  `offline_nudge_cache_test` (13 — có test đọc thẳng file asset), `output_mode_selector_test` (11),
+  +1 test chuẩn hoá tốc độ đọc trong `safe_tts_output_test.dart`.
+- [x] Cách ly: grep vùng P3 không có network (client HTTP duy nhất vẫn là `groq_llm_provider.dart`).
+- [x] Nút nhập **API key Groq** (điều kiện để DoD-1 chạy được trên máy; P2 chỉ có chỗ *đọc* key).
+- [ ] **K42 (🔴) — DoD-1:** bấm nút nổi khi có mạng ⇒ nudge **thật** từ Groq, đọc qua tai nghe.
+- [ ] **K42 (🔴) — DoD-2:** giữ nút **đúng 2 giây** trên máy ⇒ câu thoát hiểm (không phải Push);
+  thả sớm ⇒ Push. (Test tự động đã đo mốc 2s; cần xác nhận cảm giác tay thật.)
+- [ ] **K42 (🟠) — DoD-3:** đổi `Rung` ⇒ rung thật; `Chỉ hiện chữ` ⇒ im lặng tuyệt đối; `Tai nghe (đọc)`
+  ⇒ nghe qua tai nghe; **rút tai nghe rồi bấm** ⇒ hạ xuống chữ, không gọi TTS.
+- [ ] **K42 (🔴) — DoD-4:** **chế độ máy bay** + bấm nút nổi ⇒ nhận 1 nudge từ Offline Cache, có dòng
+  `CACHE OFFLINE`, không im lặng hoàn toàn, không crash.
+- [ ] **K43 (🟠) — trigger ngoài app** chưa có: volume key, nút tai nghe Bluetooth, notification action
+  (lý do kỹ thuật + đường nối sẵn: `.plan/P3-result.md` mục "Sai khác" số 2).
+- [ ] **K41 (🟠) — tốc độ đọc TTS** đã nối native (`setSpeechRate`) nhưng chưa verify trên máy.
+- [ ] **K44 (🟡) — Offline Cache không theo chủ đề hội thoại** (câu chung); cần dùng thật rồi chốt ở P5.
+- [ ] **K38 đóng:** gesture Emergency thật đã có (nút nổi giữ 2s); chỉ còn verify trên máy (K42).
 
 ### Thuộc P1B (DoD chưa xác minh — cần APK + máy thật)
 
