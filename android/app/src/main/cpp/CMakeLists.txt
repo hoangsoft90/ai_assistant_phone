@@ -33,6 +33,31 @@ set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 
+# ---------------------------------------------------------------------------------------------
+# TỐC ĐỘ — bắt buộc phải đọc trước khi sửa (bài học A36, đo trên máy thật 2026-09-22)
+#
+# Hiện tượng: APK debug 1 chunk 4s mất ~160s (RTF ≈ 39, CPU 236%); bản host P0 (Release) là 0.29.
+# Nguyên nhân:
+#  1) AGP configure CMake theo variant build (`> Task :app:configureCMakeDebug[abi]`) mà project
+#     KHÔNG set CMAKE_BUILD_TYPE ⇒ NDK dùng cờ debug của nó, tức **-O0** cho toàn bộ whisper.cpp
+#     + ggml. Host P0 thì build `-DCMAKE_BUILD_TYPE=Release`.
+#  2) `GGML_NATIVE=OFF` (ở trên) nên không có -march nào ⇒ kernel dotprod/fp16 của ggml KHÔNG được
+#     biên dịch, dù CPU máy thật (Pixel 3a: Cortex-A75 + A55) có cả hai.
+#
+# Cách sửa: dùng add_compile_options (KHÔNG phải CMAKE_CXX_FLAGS) — vì cờ của thư mục/target được
+# chèn SAU cờ của build type, mới thắng được -O0 mà AGP truyền vào. Đặt trước FetchContent_MakeAvailable
+# để mọi target con (whisper, ggml, ggml-base, ggml-cpu) đều thừa hưởng.
+add_compile_options(-O3)
+
+# dotprod/fp16 là phần tăng tốc lớn nhất cho q5_0/q8_0 (kernel quantize).
+# ⚠ Đánh đổi đã biết: cờ này biên dịch cứng theo armv8.2 ⇒ máy arm64 đời cũ (Cortex-A53,
+# Snapdragon 625/660) KHÔNG có dotprod sẽ SIGILL. Chấp nhận ở giai đoạn đo máy test; TRƯỚC KHI
+# phân phối rộng phải chuyển sang nhiều biến thể ABI (armv8-a / armv8.2) hoặc để ggml dispatch
+# theo CPU lúc chạy.
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+  add_compile_options(-march=armv8.2-a+dotprod+fp16)
+endif()
+
 FetchContent_MakeAvailable(whisper)
 
 add_library(ai_assistant_jni SHARED whisper_jni.cpp)

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
@@ -15,6 +16,10 @@ abstract final class AsrChannels {
 /// Cấu hình engine PhoWhisper.
 ///
 /// - `chunkSeconds = 4`: giữa 3–5s theo prompt — đủ ngữ cảnh cho whisper, độ trễ chấp nhận được.
+/// - `threads = 0` ⇒ **tự động**: `min(4, số nhân CPU)`. Trước đây hardcode 2, đo trên máy thật
+///   (Pixel 3a, 8 nhân) ngày 2026-09-22 thấy chỉ dùng 2/8 nhân trong khi bản đo host P0 dùng 4
+///   thread ⇒ mất tốc độ vô ích. Chặn trần 4 vì whisper.cpp không lên tuyến tính tới 8 trên
+///   kiến trúc big.LITTLE (2 nhân lớn + 6 nhân nhỏ).
 /// - `maxQueuedChunks = 1`: whisper KHÔNG streaming được; nếu engine bận mà tới chunk mới thì
 ///   chỉ giữ tối đa 1 chunk chờ, chunk sau nữa bị BỎ (kèm đếm) — thay vì xếp hàng vô hạn làm
 ///   transcript lệch thời gian thực ngày càng nhiều. Ghi đè (drop chunk cũ) thay vì bỏ chunk mới
@@ -23,7 +28,7 @@ class PhoWhisperConfig {
   const PhoWhisperConfig({
     this.modelAssetPath = 'assets/models/ggml-phowhisper-tiny-q5_0.bin',
     this.chunkSeconds = 4,
-    this.threads = 2,
+    this.threads = 0,
     this.maxQueuedChunks = 1,
     this.initTimeout = const Duration(seconds: 60),
   });
@@ -31,8 +36,15 @@ class PhoWhisperConfig {
   /// Model được đóng gói trong APK (P0: tiny q5_0 = 29MB, WER 15.5% trên FLEURS-host).
   final String modelAssetPath;
   final int chunkSeconds;
+
+  /// Số thread gửi xuống native; `0` = tự động (xem ghi chú ở đầu class).
   final int threads;
+
   final int maxQueuedChunks;
+
+  /// Số thread thật sự dùng: `threads` nếu > 0, ngược lại `min(4, số nhân CPU)`.
+  int get resolvedThreads =>
+      threads > 0 ? threads : math.min(4, Platform.numberOfProcessors);
 
   /// Hạn chót cho lời gọi `loadModel` (F3 của review P1D). Rộng rãi — mục đích duy nhất là **cắt
   /// một lần treo vô hạn** khi phía native không bao giờ trả lời: không có timeout thì
@@ -104,7 +116,7 @@ class PhoWhisperAsrEngine implements AsrEngine {
     await _channel
         .invokeMethod<void>('loadModel', <String, Object?>{
           'path': modelFile.path,
-          'threads': config.threads,
+          'threads': config.resolvedThreads,
         })
         .timeout(
           config.initTimeout,
@@ -115,7 +127,8 @@ class PhoWhisperAsrEngine implements AsrEngine {
     _channel.setMethodCallHandler(_onNativeCall);
     _initialized = true;
     _log.info('PhoWhisper sẵn sàng (${config.modelAssetPath}, '
-        'chunk=${config.chunkSeconds}s, threads=${config.threads})');
+        'chunk=${config.chunkSeconds}s, threads=${config.resolvedThreads}/'
+        '${Platform.numberOfProcessors} nhân)');
   }
 
   @override

@@ -30,6 +30,11 @@ android {
 
         // P1C: chỉ build 1 ABI (máy test arm64-v8a) — whisper.cpp build cho mỗi ABI đều tốn
         // thời gian CI đáng kể. Thêm ABI khác khi cần phân phối rộng.
+        //
+        // K30 (đo trên máy thật 2026-09-22): khai báo này một mình KHÔNG đủ — plugin Flutter chạy
+        // sau và ghi đè bằng `clear()` + `addAll(PLATFORM_ABI_LIST)` (armeabi-v7a + arm64-v8a +
+        // x86_64), nên APK từng là 155MB với 3 bản mỗi thư viện native. Điều kiện để plugin chịu
+        // đứng yên là property `disable-abi-filtering=true` trong android/gradle.properties.
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

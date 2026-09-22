@@ -5,6 +5,8 @@
 // quả, dispose idempotent, và không phát text rỗng vào stream.
 
 import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:ai_assistant_phone/audio/asr/asr_engine.dart';
 import 'package:ai_assistant_phone/audio/asr/phowhisper_asr_engine.dart';
@@ -304,6 +306,24 @@ void main() {
   group('MetaConfigStore — hợp đồng ConfigStore', () {
     test('MetaConfigStore implements ConfigStore (chưa chạm SQLite ở test này)', () {
       expect(const MetaConfigStore(), isA<ConfigStore>());
+    });
+  });
+
+  // K29a — đo trên máy thật 2026-09-22: giá trị hardcode 2 thread chỉ dùng 2/8 nhân CPU ⇒ gửi
+  // xuống native luôn ít hơn cần thiết. Test khoá lại quy tắc "0 = tự động" để lần sau đổi tiếp
+  // (ví dụ lên 6) bắt buộc phải sửa cả test này — không âm thầm đổi tốc độ.
+  group('PhoWhisperConfig.resolvedThreads (K29a)', () {
+    test('mặc định (threads = 0) ⇒ tự động = min(4, số nhân CPU)', () {
+      const PhoWhisperConfig config = PhoWhisperConfig();
+      expect(config.threads, 0, reason: '0 = tự động, không hardcode số nhân');
+      expect(config.resolvedThreads, math.min(4, Platform.numberOfProcessors));
+      expect(config.resolvedThreads, greaterThanOrEqualTo(1));
+      expect(config.resolvedThreads, lessThanOrEqualTo(4));
+    });
+
+    test('threads > 0 ⇒ dùng đúng giá trị đã chỉ định (không bị chặn trần)', () {
+      expect(const PhoWhisperConfig(threads: 1).resolvedThreads, 1);
+      expect(const PhoWhisperConfig(threads: 6).resolvedThreads, 6);
     });
   });
 }

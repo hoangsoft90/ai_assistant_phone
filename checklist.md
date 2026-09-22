@@ -146,16 +146,54 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [x] **K25 — `init()` không có timeout:** nếu phía native không bao giờ trả lời `loadModel`, `AsrEngineSelector` không bao giờ chạy fallback và UI kẹt ở trạng thái bận.
 - [x] **K26 — mất câu đang nói dở khi tắt ASR:** Vosk không gọi `getFinalResult()` trong `dispose()` ⇒ audio từ endpoint cuối tới lúc tắt không được nhận dạng.
 
-### Thuộc P1E (DoD chưa xác minh — cần APK + máy thật)
+### Thuộc P1E — ĐÃ KIỂM TRÊN MÁY THẬT (Pixel 3a / Android 12 / arm64-v8a, APK `9f4508e`, 2026-09-22)
 
-- [ ] **K27 (🔴):** crash recovery + hạn 7 ngày **trên máy thật** — quy trình `adb shell am kill` đã ghi
-  ở `lib/transcript/README.md` mục 5; unit test chỉ chứng minh *logic*, không chứng minh SQLite thật
-  (và migration v1→v2 trên máy đã cài P0.5) hoạt động.
+- [x] **K27a — transcript thật vào đĩa:** ASR trên máy sinh **dòng thật** trong `transcript_segments`
+  (đọc DB bằng `run-as` + sqlite3), mỗi dòng có timestamp.
+- [x] **K27b — crash recovery:** force-stop app → mở lại ⇒ **vẫn phiên cũ**, ghi tiếp đúng phiên đó
+  (không tạo phiên mới).
+- [x] **K27c — hạn 7 ngày:** phiên 8 ngày trước bị xoá cả dòng + mốc Push; phiên hôm nay còn nguyên.
+- [x] **K27d — migration v1→v2 thật trên máy:** tạo DB v1 (chỉ bảng `meta`) → cài vào app → mở app ⇒
+  `user_version` **1 → 2**, có `transcript_sessions`/`transcript_segments`/`transcript_pushes` + 2 index,
+  **dữ liệu `meta` cũ nguyên vẹn** (không mất `asr.engine`, `created_at`).
+- [ ] **DoD-4 (mốc Push) trên máy:** nút "Đánh dấu Push (P1E)" **chưa bấm** — máy đang được dùng nên
+  tôi không tap bừa (xem bài học A39). Unit test đã phủ `markPushMoment`.
+- [ ] **Nhịp ghi đĩa chưa đo:** 1 INSERT + 1 UPDATE mỗi ~4s/chunk — chưa biết ảnh hưởng pin/I/O trên
+  máy thật thế nào (đo cùng lúc với K18/K19).
 - [ ] **K28 (🟠) — cần người dùng chốt:** có chuyển sang **DB mã hoá (SQLCipher)** không? Đã kiểm tài
   liệu: `sqflite` **không** hỗ trợ mã hoá, phải đổi sang `sqflite_sqlcipher`. Prompt P1E cho phép bỏ
   qua ở phase này ⇒ hiện dữ liệu nằm trong sandbox app + tự xoá sau 7 ngày.
-- [ ] **Nhịp ghi đĩa chưa đo:** 1 INSERT + 1 UPDATE mỗi ~4s/chunk — chưa biết ảnh hưởng pin/I/O trên
-  máy thật thế nào (đo cùng lúc với K18/K19).
+
+### Phát hiện mới trên máy thật 2026-09-22 (CHƯA sửa — cần quyết định)
+
+> Đây là kết quả đo trên máy, không phải suy đoán. Nguồn: logcat, DB trên máy, giải mã
+> central directory của APK đang cài, CPU `top -H`.
+
+- [ ] **K29 (🔴) — ASR KHÔNG đạt tốc độ realtime:** 1 chunk 4s mất **~160s** (RTF ≈ 39); sau 236s
+  audio chỉ ra được vài dòng và **59 chunk bị bỏ** (chính sách bỏ chunk cũ nhất) — CPU app ~236% liên
+  tục. Bốn nguyên nhân đã khoanh vùng, **cộng dồn** là đủ để giải thích 39x so với host:
+  - [ ] **K29a — `threads = 2`** (`PhoWhisperAsrEngine.threads` mặc định 2) trên máy **8 nhân**;
+    bản đo host P0 dùng **4 threads**. Sửa 1 dòng config, đo lại trước khi đụng chỗ khác.
+  - [ ] **K29b — native build theo variant Debug:** CI log có `:app:configureCMakeDebug[abi]` và
+    **không có** `-DCMAKE_BUILD_TYPE` nào trong `CMakeLists.txt`/`build.gradle.kts` ⇒ whisper.cpp +
+    ggml biên dịch theo Debug của NDK (`-O0`). Host P0 build `-DCMAKE_BUILD_TYPE=Release`
+    (`spikes/p0_audio/tools/convert_phowhisper.sh` dòng 52). **Xác nhận dứt điểm** bằng cách thêm 1
+    bước CI in `build/.cxx/Debug/*/arm64-v8a/CMakeCache.txt` + `compile_commands.json` (2 lib đã bị
+    strip DWARF nên không đọc được cờ từ `.so`).
+  - [ ] **K29c — không có SIMD dotprod/fp16:** `GGML_NATIVE=OFF` (CMakeLists dòng 30) mà không thêm
+    `-march=armv8.2-a+dotprod+fp16` ⇒ kernel dotprod/i8mm/fp16 không được biên dịch, dù CPU Pixel 3a
+    (Cortex-A75 + A55) **có** hỗ trợ dotprod.
+  - [ ] **K29d — chunk 4s + whisper pad ~30s:** `whisper_full` luôn mã hoá mel theo cửa sổ ~30s, nên
+    chi phí 1 chunk 4s ≈ chi phí 30s audio ⇒ chọn chunk nhỏ làm RTF phóng đại ~7x. Cần đo A/B trên
+    host (chunk 4s vs 10–15s) trước khi kết luận thuật toán có khả thi.
+- [ ] **K30 (🟠) — `abiFilters` không có tác dụng:** `ndk { abiFilters += listOf("arm64-v8a") }` nhưng
+  APK đang cài **155MB, chứa 3 ABI** (arm64-v8a + armeabi-v7a + x86_64 — cả `libwhisper.so`), CI cũng
+  configure CMake cho `[armeabi-v7a]`, `[x86]`, `[x86_64]`. Chỉ ship arm64 ⇒ APK còn ~55MB và CI build
+  nhanh hơn nhiều.
+- [ ] **K31 (🟠) — JNA/Vosk:** `libjnidispatch.so` **có trong APK cho arm64-v8a** ✅ (phần packaging
+  đạt, `useLegacyPackaging` hoạt động). Còn thiếu xác nhận **runtime**: chọn engine Vosk + bật ASR
+  trên máy (cần 2 lần bấm — chờ user hoặc lúc máy rảnh).
+- [ ] **K32 (🟡) — RAM khi ASR chạy (K21):** chưa đo `dumpsys meminfo` trong lúc ASR bật.
 
 ### Thuộc P1B (DoD chưa xác minh — cần APK + máy thật)
 

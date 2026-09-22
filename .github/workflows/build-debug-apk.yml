@@ -86,6 +86,38 @@ jobs:
           done
           ./gradlew assembleDebug --stacktrace
 
+      # Bước này KHÔNG chỉ để log đẹp: nó là bằng chứng cho 3 nợ K29b/K29c/K30 — 2 lib native đã bị
+      # strip DWARF nên không thể đọc cờ biên dịch từ .so; CMakeCache + compile_commands là nguồn
+      # duy nhất kiểm được "có thật sự -O3 và -march=armv8.2-a+dotprod+fp16 hay không".
+      # continue-on-error: bước này chỉ ĐO, không được phép làm mất APK (thứ cần cho lần đo máy thật).
+      - name: Kiểm chứng native — cờ tối ưu + ABI (K29b/K29c/K30)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          CACHE=$(ls build/.cxx/*/*/arm64-v8a/CMakeCache.txt | head -1)
+          echo "=== $CACHE"
+          grep -E "^(CMAKE_BUILD_TYPE|CMAKE_C_FLAGS_DEBUG|CMAKE_CXX_FLAGS_DEBUG|CMAKE_C_FLAGS_RELEASE):" "$CACHE" || true
+          CC=$(ls build/.cxx/*/*/arm64-v8a/compile_commands.json | head -1)
+          python3 - "$CC" <<'PY'
+          import json, sys
+          for e in json.load(open(sys.argv[1])):
+              f = e.get('file', '')
+              if 'whisper' in f and f.endswith('.cpp'):
+                  flags = [a for a in e['command'].split() if a.startswith(('-O', '-march'))]
+                  print('=== file :', f.split('/')[-1])
+                  print('=== flags:', ' '.join(flags) or '(KHONG co -O/-march!)')
+                  break
+          PY
+          python3 - <<'PY'
+          import os, zipfile
+          apk = 'build/app/outputs/flutter-apk/app-debug.apk'
+          libs = [n for n in zipfile.ZipFile(apk).namelist() if n.startswith('lib/') and n.endswith('.so')]
+          abis = sorted({n.split('/')[1] for n in libs})
+          print(f'=== APK: {os.path.getsize(apk)/1048576:.1f} MB | {len(libs)} file .so | ABI: {abis}')
+          if abis != ['arm64-v8a']:
+              print(f'::warning::ABI ngoài mong đợi: {abis} (mong đợi chỉ arm64-v8a)')
+          PY
+
       - name: Upload artifact APK debug
         uses: actions/upload-artifact@v4
         with:
