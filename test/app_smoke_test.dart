@@ -30,6 +30,8 @@ void main() {
       'com.aiassistant.phone/asr',
       // P1D — ASR dự phòng Vosk (xem lib/audio/asr/vosk_asr_engine.dart).
       'com.aiassistant.phone/vosk',
+      // P1F — TTS an toàn (xem lib/audio/tts/tts_channels.dart).
+      'com.aiassistant.phone/tts',
     ];
     for (final String name in channels) {
       messenger.setMockMethodCallHandler(MethodChannel(name), (MethodCall call) async => null);

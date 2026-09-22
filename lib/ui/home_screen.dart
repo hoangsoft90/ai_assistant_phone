@@ -6,6 +6,8 @@ import 'package:sqflite/sqflite.dart';
 
 import '../audio/asr/asr_engine.dart';
 import '../audio/asr/asr_engine_selector.dart';
+import '../audio/tts/safe_tts_output.dart';
+import '../audio/tts/tts_client.dart';
 import '../transcript/transcript_store.dart';
 import '../audio/capture/audio_capture_controller.dart';
 import '../audio/capture/capture_config.dart';
@@ -70,6 +72,11 @@ class _HomeScreenState extends State<HomeScreen> {
   /// (nơi đã xoá dữ liệu cũ hơn 7 ngày + khôi phục phiên đang dở).
   final TranscriptStore _transcript = TranscriptStore.instance();
 
+  /// P1F: cổng phát TTS an toàn — **mọi** âm thanh phát ra phải đi qua đây. Màn hình chẩn đoán
+  /// chỉ gọi nó để chạy 3 test case bắt buộc của P1F (nút thật của người dùng là P3).
+  final SafeTtsOutput _safeTts = SafeTtsOutput.instance();
+  StreamSubscription<TtsFallbackNotice>? _ttsFallbackSub;
+
   AsrEngine? _asr;
   AsrEngineKind _asrKind = AsrEngineSelector.defaultKind;
   StreamSubscription<Uint8List>? _asrChunkSub;
@@ -85,6 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _refreshStatus();
     _listenInfrastructure();
     unawaited(_loadAsrConfig());
+    unawaited(_refreshTts());
   }
 
   /// Đăng ký mọi nguồn sự kiện hạ tầng (F4). Mỗi nguồn bọc riêng: một mảnh lỗi không cản mảnh
@@ -115,6 +123,14 @@ class _HomeScreenState extends State<HomeScreen> {
     _vadStatSub = _conversation.stats.listen((VadFrameStat _) {
       _vadTick.value++; // Vẽ lại dòng "Hội thoại" mỗi buffer (10/s) — giá trị đọc trực tiếp.
     });
+    // P1F: nudge chữ khi không đọc được qua tai nghe (không có tai nghe / vừa mất / vừa nối lại).
+    _ttsFallbackSub = _safeTts.fallbacks.listen((TtsFallbackNotice notice) {
+      _log.warn('TTS fallback (${notice.kind.name}): ${notice.message}');
+      _enqueueSnack(notice.message);
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -125,10 +141,57 @@ class _HomeScreenState extends State<HomeScreen> {
     _asrChunkSub?.cancel();
     _asrTranscriptSub?.cancel();
     _asrTicker?.cancel();
+    _ttsFallbackSub?.cancel();
     unawaited(_transcript.detach());
     unawaited(_asr?.dispose());
+    // `SafeTtsOutput` là singleton dùng cả app nên ở đây chỉ DỪNG phát, KHÔNG dispose (dispose sẽ
+    // đóng stream vĩnh viễn và mọi chỗ dùng lại sau đó sẽ chết).
+    unawaited(_safeTts.stop());
     _vadTick.dispose();
     super.dispose();
+  }
+
+  /// P1F: đọc lại trạng thái tai nghe + vẽ lại dòng "TTS".
+  Future<void> _refreshTts() async {
+    await _safeTts.refresh();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// P1F: đọc thử 1 câu qua tai nghe (để chạy 3 test case bắt buộc trên máy thật).
+  Future<void> _speakTest() async {
+    final TtsSpeakResult result = await _safeTts.speak('Đây là câu kiểm tra phát ra tai nghe.');
+    _log.info('đọc thử TTS: $result');
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// P1F task 3: người dùng xác nhận tai nghe đã kết nối lại ổn định (P3 sẽ gắn vào floating button).
+  Future<void> _confirmHeadset() async {
+    await _safeTts.confirmHeadsetReady();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// Trạng thái đường phát TTS (P1F) cho màn hình chẩn đoán. Hiện thẳng thiết bị đang được coi là
+  /// "tai nghe" để biết ngay vì sao bị chặn phát mà không phải đọc logcat.
+  String _ttsText() {
+    final TtsOutputInfo? info = _safeTts.lastInfo;
+    final TtsDevice? device = info?.preferred;
+    final String deviceText = device == null
+        ? 'không thấy thiết bị riêng tư nào'
+        : '${device.name ?? "thiết bị lạ"} (type ${device.type}) · ${info!.devices.length} thiết bị riêng tư';
+    return switch (_safeTts.state) {
+      TtsOutputState.unknown => 'chưa kiểm tra',
+      TtsOutputState.ready =>
+        _safeTts.isSpeaking ? 'đang đọc · $deviceText' : 'sẵn sàng · $deviceText',
+      TtsOutputState.silent => _safeTts.needsConfirmation
+          ? 'CHẾ ĐỘ IM LẶNG · chờ xác nhận tai nghe (bấm nút xác nhận)'
+          : 'CHẾ ĐỘ IM LẶNG · $deviceText',
+    };
   }
 
   /// Đọc engine đã chọn trong cấu hình để hiện lên UI (không tự bật ASR — đọc lúc mở màn hình).
@@ -299,6 +362,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// "Làm mới trạng thái" = trạng thái hạ tầng + trạng thái tai nghe cho tầng TTS (P1F).
+  Future<void> _refreshAll() async {
+    await _refreshStatus();
+    await _refreshTts();
+  }
+
   /// Đọc trạng thái. Mọi lời gọi plugin đều bọc try/catch: màn hình chính không được crash
   /// chỉ vì một mảnh hạ tầng lỗi (đây là màn hình dùng để chẩn đoán trên máy thật).
   Future<void> _refreshStatus() async {
@@ -401,7 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 8),
           OutlinedButton(
-            onPressed: _busy ? null : _refreshStatus,
+            onPressed: _busy ? null : _refreshAll,
             child: const Text('Làm mới trạng thái'),
           ),
           const SizedBox(height: 16),
@@ -440,6 +509,19 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _transcript.sessionId == null ? null : () => unawaited(_markPush()),
             icon: const Icon(Icons.flag_outlined),
             label: const Text('Đánh dấu Push (P1E)'),
+          ),
+          const SizedBox(height: 8),
+          // P1F: 2 nút tạm để chạy 3 test case bắt buộc trên máy thật (nút thật của người dùng là P3).
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => unawaited(_speakTest()),
+            icon: const Icon(Icons.volume_up_outlined),
+            label: const Text('Đọc thử qua tai nghe (P1F)'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => unawaited(_confirmHeadset()),
+            icon: const Icon(Icons.headset_outlined),
+            label: const Text('Xác nhận tai nghe đã sẵn sàng (P1F)'),
           ),
           const SizedBox(height: 24),
           _statusCard(),
@@ -484,6 +566,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   _infoRow('Hội thoại', _conversationText()),
             ),
             _infoRow('ASR', _asrText()),
+            _infoRow('TTS', _ttsText()),
             _infoRow('Nhận dạng', _lastTranscript),
             _infoRow('Transcript', _transcriptText()),
             _infoRow('Push gần nhất', _pushText()),

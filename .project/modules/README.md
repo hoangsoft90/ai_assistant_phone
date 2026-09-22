@@ -39,7 +39,7 @@ phase tương ứng bắt đầu (và ghi vào bảng mục 2 lúc đó).
 | `asr-phowhisper` | P1C | ~~`lib/transcript/`~~ → thực tế `lib/audio/asr/` | Engine ASR chính (GGML, JNI) — **đã xong** (xem `asr-engine.md`) |
 | `asr-vosk` | P1D | ~~`lib/transcript/`~~ → thực tế `lib/audio/asr/` | Engine dự phòng + interface chung — **đã xong** (xem `asr-engine.md`) |
 > `transcript-store` (P1E) đã có code — xem bảng ở mục 2 phía trên (file: `transcript-store.md`).
-| `tts-safety` | P1F | `lib/audio/` | **SafeTtsOutput** — cổng an toàn duy nhất được phát ra loa |
+> `tts-safety` (P1F) đã có code — xem bảng ở mục 2 phía trên (file: `tts-safety.md`; **3 test case máy thật chưa chạy**).
 | `emergency-phrase` | P1G | `lib/trigger/` | Câu thoát hiểm phát hoàn toàn local, không qua LLM |
 | `suggestion-engine` | P2 | `lib/suggestion/` | Gọi LLM + Policy lọc gợi ý; fallback offline |
 | `trigger-modes` | P3 | `lib/trigger/` | Cách kích hoạt gợi ý + chế độ hiển thị + cache nudge offline |

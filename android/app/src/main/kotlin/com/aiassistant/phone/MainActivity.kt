@@ -3,6 +3,7 @@ package com.aiassistant.phone
 import com.aiassistant.phone.asr.AsrChannelBridge
 import com.aiassistant.phone.asr.VoskChannelBridge
 import com.aiassistant.phone.audio.CaptureChannelBridge
+import com.aiassistant.phone.tts.SafeTtsChannelBridge
 import com.pravera.flutter_foreground_task.FlutterForegroundTaskLifecycleListener
 import com.pravera.flutter_foreground_task.FlutterForegroundTaskStarter
 import com.pravera.flutter_foreground_task.service.ForegroundService
@@ -68,6 +69,9 @@ class MainActivity : FlutterActivity() {
     AsrChannelBridge.register(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
     // P1D: kênh ASR dự phòng (Vosk) cho engine UI.
     VoskChannelBridge.register(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
+    // P1F: kênh TTS an toàn. Cố ý CHỈ đăng ký cho engine UI (`home_screen`) — ở phase này mọi lời
+    // gọi phát TTS đến từ UI; sự kiện native→Dart đi qua messenger đăng ký đầu tiên.
+    SafeTtsChannelBridge.register(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
     // Engine của service: cho phép isolate nền subscribe chunk PCM (P1B dùng để chạy VAD).
     ForegroundService.addTaskLifecycleListener(captureEngineListener)
   }
@@ -77,6 +81,7 @@ class MainActivity : FlutterActivity() {
     CaptureChannelBridge.unregister(flutterEngine.dartExecutor.binaryMessenger)
     AsrChannelBridge.unregister(flutterEngine.dartExecutor.binaryMessenger)
     VoskChannelBridge.unregister(flutterEngine.dartExecutor.binaryMessenger)
+    SafeTtsChannelBridge.unregister(flutterEngine.dartExecutor.binaryMessenger)
     super.cleanUpFlutterEngine(flutterEngine)
   }
 }

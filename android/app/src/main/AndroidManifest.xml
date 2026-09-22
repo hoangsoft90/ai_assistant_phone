@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Cần vì ForegroundTaskOptions(allowWakeLock: true) giữ CPU thức trong lúc nghe liên tục -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- P1F: rung báo hiệu "không có tai nghe" / "tai nghe vừa mất" (quyền thường, không xin runtime) -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:label="Trợ lý giao tiếp"
@@ -65,6 +67,12 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- P1F: Android 11+ chỉ cho app THẤY engine TTS của hệ thống khi khai báo intent này.
+             Thiếu nó, `TextToSpeech` khởi tạo được nhưng không có engine nào ⇒ không tổng hợp
+             được (fail-safe: không phát gì). Đã trả giá ở spike P0 — xem spikes/p0_audio. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
         </intent>
     </queries>
 </manifest>
