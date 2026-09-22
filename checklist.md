@@ -169,9 +169,21 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 > Đây là kết quả đo trên máy, không phải suy đoán. Nguồn: logcat, DB trên máy, giải mã
 > central directory của APK đang cài, CPU `top -H`.
 
-- [ ] **K29 (🔴) — ASR KHÔNG đạt tốc độ realtime:** 1 chunk 4s mất **~160s** (RTF ≈ 39); sau 236s
-  audio chỉ ra được vài dòng và **59 chunk bị bỏ** (chính sách bỏ chunk cũ nhất) — CPU app ~236% liên
-  tục. Bốn nguyên nhân đã khoanh vùng, **cộng dồn** là đủ để giải thích 39x so với host:
+- [~] **K29 (🔴) — ASR tốc độ: ĐÃ SỬA 35 LẦN, gần đạt (RTF 1.13) nhưng CHƯA realtime.**
+
+  | | Bản cũ (trước fix) | Bản sau fix (`bac1414`, đo 2026-09-22 10:47–10:50) |
+  |---|---|---|
+  | latency / chunk 4s | **~160 000 ms** | **trung vị 4 511 ms** (min 4 105 · max 6 462) |
+  | RTF | **~39** | **1.13** (min 1.03 · max 1.62) |
+  | chunk bị bỏ | 59 liên tục (mất gần hết audio) | **8 trong ~5 phút** (≈1 chunk/40s) |
+  | output | gần như không có | **54 dòng transcript thật** trong 4.7 phút, khoảng cách trung vị 4 535 ms |
+  | crash | — | **0** (không còn SIGILL sau khi revert `-march`) |
+
+  Máy test: Pixel 3a, `threads=4` (đã xác nhận trong log `AsrJni`), có người nói thật trong lúc đo
+  (VAD chuyển `userSpeaking`/`notUserSpeaking` liên tục). Chi tiết + log ở `.plan/P1E-result.md`.
+  **Còn lại để đạt realtime:** xem **K33** bên dưới.
+
+  Bốn nguyên nhân đã khoanh vùng (K29a/b/c đã sửa, K29d còn mở), **cộng dồn** đủ giải thích 39x:
   - [x] **K29a — `threads = 2`** trên máy **8 nhân** ⇒ **đã sửa `2ecdd3b`:** `threads = 0` = tự động
     `min(4, số nhân)` (`resolvedThreads`) + 2 test khoá hành vi + log in `threads=x/8 nhân`.
   - [x] **K29b — native build theo variant Debug:** ⇒ **đã sửa `2ecdd3b`:** thêm `add_compile_options(-O3)`
@@ -183,14 +195,22 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
     (`spikes/p0_audio/tools/convert_phowhisper.sh` dòng 52). **Xác nhận dứt điểm** bằng cách thêm 1
     bước CI in `build/.cxx/Debug/*/arm64-v8a/CMakeCache.txt` + `compile_commands.json` (2 lib đã bị
     strip DWARF nên không đọc được cờ từ `.so`).
-  - [x] **K29c — không có SIMD dotprod/fp16** ⇒ **đã sửa `2ecdd3b`:** thêm
-    `-march=armv8.2-a+dotprod+fp16` cho `arm64-v8a` (kèm ghi chú đánh đổi: máy arm64 đời cũ không có
-    dotprod sẽ SIGILL ⇒ phải làm nhiều biến thể trước khi phát hành rộng). Gốc: `GGML_NATIVE=OFF`
-    (CMakeLists dòng 30) mà không thêm `-march` ⇒ kernel dotprod/i8mm/fp16 không được biên dịch, dù
-    CPU Pixel 3a (Cortex-A75 + A55) **có** hỗ trợ dotprod.
+  - [x] **K29c — cờ `-march` đã thử và phải REVERT (crash thật):** commit `2ecdd3b` thêm
+    `-march=armv8.2-a+dotprod+fp16`; **cài lên máy ⇒ crash SIGILL ngay chunk đầu**
+    (`signal 4 ILL_ILLOPC` tại `libggml-cpu.so ggml_vec_dot_q5_0_q8_0+256` → `whisper_full`).
+    Máy test (`/proc/cpuinfo`) **không có `asimddp`** (dot product) dù có `asimdhp` (fp16) —
+    CPU part `0x803` (A75) ×6 + `0x802` (A55) ×2. Đã revert trong `bac1414`, chỉ giữ `-O3`, kèm
+    cảnh báo ⛔ trong `CMakeLists.txt` + bài học **A42**. Muốn có dotprod ⇒ phải build 2 biến thể
+    và chọn theo HWCAP lúc chạy (chưa làm, chờ quyết định).
   - [ ] **K29d — chunk 4s + whisper pad ~30s:** `whisper_full` luôn mã hoá mel theo cửa sổ ~30s, nên
     chi phí 1 chunk 4s ≈ chi phí 30s audio ⇒ chọn chunk nhỏ làm RTF phóng đại ~7x. Cần đo A/B trên
     host (chunk 4s vs 10–15s) trước khi kết luận thuật toán có khả thi.
+  - [ ] **K33 (🟠) — đường để RTF < 1 (chưa làm):** thứ tự thử đẻ rẻ trước, **không đụng cờ build**:
+    1. **Chunk 8–12s** (chỉ đổi `PhoWhisperConfig.chunkSeconds`) — vì chi phí cố định ~30s mel pad
+       đang chiếm phần lớn mỗi lần gọi; chunk lớn hơn chia đều phần cố định đó.
+    2. **`threads` 6 thay vì 4** (máy 8 nhân) — đo lại cả 2 mức trên cùng máy.
+    3. Chỉ khi cần thêm: dotprod — nhưng **Pixel 3a không có dotprod** nên bước này không giúp máy
+       test, chỉ có ích cho máy khác (phải build 2 biến thể + chọn theo HWCAP, xem A42).
 - [x] **K30 (🟠) — `abiFilters` bị plugin Flutter ghi đè** ⇒ **đã sửa `2ecdd3b`:** gốc là
   `FlutterPlugin.configureAbiWithoutSplits()` gọi `abiFilters.clear()` + `addAll(PLATFORM_ABI_LIST)`
   = [armeabi-v7a, arm64-v8a, x86_64] **sau** khi app khai báo ⇒ phải bật property

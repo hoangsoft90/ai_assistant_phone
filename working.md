@@ -119,4 +119,16 @@
   (cờ thư mục/target chèn sau cờ build type ⇒ mới thắng `-O0` của variant Debug);
   `-march=armv8.2-a+dotprod+fp16` cho arm64-v8a; `disable-abi-filtering=true` để plugin Flutter không
   ghi đè `abiFilters`. Thêm bước CI in `CMakeCache` + `compile_commands` + ABI thật trong APK.
-  Verify local: `flutter analyze` sạch · **97/97 test**. Chờ CI xanh → cài APK mới → đo lại RTF (K29).
+  Verify local: `flutter analyze` sạch · **97/97 test**. CI `35680615247` **XANH** (6 phút, 1 ABI):
+  log in `flags: -O3 -march=armv8.2-a+dotprod+fp16`, APK **115MB · 13 lib · ABI chỉ arm64-v8a**.
+- [2026-09-22] **⚠️ Cờ `dotprod` crash thật trên máy** (A42): sau khi cài APK `2ecdd3b`, app chết
+  `signal 4 (SIGILL, ILL_ILLOPC)` tại `libggml-cpu.so (ggml_vec_dot_q5_0_q8_0+256)` → `whisper_full`.
+  `/proc/cpuinfo` của Pixel 3a: có `asimdhp` nhưng **KHÔNG có `asimddp`** ⇒ không có dot product.
+  **Đã revert `-march` trong `bac1414`** (giữ `-O3`), ghi cảnh báo ⛔ + bằng chứng trong
+  `CMakeLists.txt`, checklist K29c, bài học A42/A43. Đo được trên máy: `threads=4` ✓ (log AsrJni),
+  model load ở loader thread ✓ (F1 giữ nguyên).
+- [2026-09-22] **ĐO LẠI SAU FIX (bản `bac1414`) — nhanh hơn 35 lần:** latency 1 chunk 4s từ
+  ~160 000 ms → **trung vị 4 511 ms** (RTF **39 → 1.13**); chunk bị bỏ từ 59 liên tục → **8 trong ~5
+  phút**; **54 dòng transcript thật** trong 4.7 phút (khoảng cách trung vị 4 535 ms); **0 crash
+  SIGILL**. ASR vẫn chạy (nên tắt bằng nút khi không đo). **Chưa đạt realtime** (RTF ≥ 1) ⇒ bước tiếp
+  theo là **K33**: thử chunk 8–12s và `threads` 6 (chỉ đổi config, không đụng cờ build).
