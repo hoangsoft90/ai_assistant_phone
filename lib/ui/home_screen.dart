@@ -145,23 +145,52 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Đổi engine ASR (P1D task 2/3): ghi cấu hình rồi khởi động lại ASR nếu đang chạy. Không cần
-  /// build lại app và không đụng tới code tầng trên.
+  /// Đổi engine ASR (P1D task 2/3): ghi cấu hình để lần bật kế tiếp dùng engine mới.
+  ///
+  /// Nếu đang lắng nghe/ASR đang chạy: **tắt hẳn** theo đúng luồng của nút "Tắt lắng nghe"
+  /// (ASR + detach transcript → VAD → capture → service) rồi để người dùng tự bật lại.
+  /// Lý do: đổi engine ngay giữa lúc thu làm app lỗi — engine cũ bị `dispose()` trong khi capture
+  /// còn bơm chunk và transcript store còn attach. KHÔNG tự start lại service/capture/ASR.
   Future<void> _selectAsrEngine(AsrEngineKind? kind) async {
     if (kind == null || kind == _asrKind) {
       return;
     }
-    setState(() => _asrKind = kind);
+    setState(() => _busy = true);
     try {
-      await _asrSelector.writeConfigured(kind);
-    } catch (error) {
-      _log.warn('không ghi được cấu hình engine ASR: $error');
-      _enqueueSnack('Không lưu được lựa chọn engine: $error');
-    }
-    final bool wasRunning = _asr != null;
-    if (wasRunning) {
-      await _stopAsr();
-      await _startAsr(); // Chạy lại bằng engine vừa chọn để so sánh ngay trên máy.
+      final bool active = _serviceRunning ||
+          _asr != null ||
+          _capture.currentStatus == CaptureStatus.starting ||
+          _capture.currentStatus == CaptureStatus.capturing;
+      if (active) {
+        // Cùng thứ tự tắt như `_toggleService()`: nhả dần từ trong ra ngoài (model ASR nặng nhất
+        // nên giải phóng trước), mic luôn được nhả trước khi tiến trình hết foreground.
+        await _stopAsr();
+        await _conversation.stop();
+        await _capture.stop();
+        await ListeningService.stop();
+      }
+      try {
+        await _asrSelector.writeConfigured(kind);
+      } catch (error) {
+        // Ghi hỏng ⇒ GIỮ engine cũ: `_asrKind` phải luôn là engine thật đang có hiệu lực, và nếu
+        // gán `_asrKind = kind` ở đây thì guard `kind == _asrKind` phía trên sẽ chặn luôn lần bấm
+        // lại đúng engine đó (không thể thử lưu lại).
+        _log.warn('không ghi được cấu hình engine ASR: $error');
+        _enqueueSnack('Không lưu được lựa chọn engine: $error');
+        return;
+      }
+      if (mounted) {
+        setState(() => _asrKind = kind);
+      }
+      _enqueueSnack('Đã đổi engine. Bấm Bật lắng nghe để chạy lại.');
+    } catch (error, stackTrace) {
+      _log.error('đổi engine ASR lỗi', error, stackTrace);
+      _enqueueSnack('Lỗi: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+      await _refreshStatus();
     }
   }
 
@@ -377,7 +406,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 16),
           // P1D: chọn engine nhận dạng ngay trên máy — ghi vào cấu hình (bảng `meta`), không cần
-          // build lại app. Đổi engine khi đang chạy sẽ tự khởi động lại để so sánh trực tiếp.
+          // build lại app. Đổi engine khi đang lắng nghe sẽ TẮT hẳn phiên hiện tại (không tự bật
+          // lại) — người dùng bấm "Bật lắng nghe" để chạy lại bằng engine vừa chọn.
           DropdownButtonFormField<AsrEngineKind>(
             key: ValueKey<AsrEngineKind>(_asrKind),
             initialValue: _asrKind,
