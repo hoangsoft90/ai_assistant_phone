@@ -38,9 +38,9 @@ dự kiến là P1A/P1B.
 | P1C | ASR PhoWhisper (chính) | 🟡 code xong + native compile XANH (CI run #7); 0/4 DoD máy thật — nợ K18 |
 | P1D | ASR Vosk (dự phòng) + abstraction | 🟡 code xong (`82f91d2`), CI XANH (run 35612601371); 2/4 DoD đạt — nợ K19/K20/K21 |
 | P1E | Transcript Store | 🟡 **code xong** (2/4 DoD đạt) — SQLite **v2 + migration** (3 bảng transcript), rolling 8 phút trong RAM, xoá sau 7 ngày, khôi phục phiên sau khi bị kill, API text thô không nhãn cho P2. Nợ K27 (đo máy thật), K28 (mã hoá DB?) |
-| P1F | TTS Output Safety Layer (A2DP-only) | 🟡 **code xong** (`386c3df`, CI run #22/#23 xanh — Kotlin biên dịch được, 21 test mới); **3 test case bắt buộc CHƯA chạy trên máy thật** — nợ K34 |
-| P1G | Emergency Phrase (local) | ⬜ |
-| P2 | Suggestion Engine (LLM + Policy) | ⬜ |
+| P1F | TTS Output Safety Layer (A2DP-only) | 🟡 **code xong + test MỘT PHẦN trên máy thật** (2026-09-22: phát đầu-cuối ✅, mất-tai-nghe+rung ✅ — `.plan/P1F-result.md`); còn rút-mid/TC2/TC3 — nợ K34 (thu hẹp), **K37 mới** |
+| P1G | Emergency Phrase (local) | 🟡 **code xong** (`lib/audio/emergency/`, 8 test mới — 130/130 pass, analyze sạch); chưa build/máy thật — xem `.plan/P1G-result.md` |
+| P2 | Suggestion Engine (LLM + Policy) | 🟡 **code xong** (`lib/suggestion/`, 29 test mới — 161/161 pass, analyze sạch); **prompt khung nguyên văn** đã đối chiếu từng dòng với `.plan/prompt_P2.md`; review lần 2 tìm + sửa **3 lỗi High** (bài học A50); chưa test máy thật — nợ **K39**, **K40** |
 | P3 | Trigger Abstraction + Output Modes + Offline Nudge Cache | ⬜ |
 | P4 | Full Pipeline Integration (half-duplex) | ⬜ |
 | P5 | Pre-Brief + Post-Review + Coaching + Training Level | ⬜ |
@@ -79,6 +79,10 @@ dự kiến là P1A/P1B.
 | **K34** | **P1F: 3 test case bắt buộc (rút tai nghe giữa lúc đọc / rút trước khi đọc / tắt kết nối khi đang đọc) CHƯA chạy trên máy thật** — unit test chỉ khoá logic Dart, không chứng minh được "không lọt ra loa ngoài". Đây là phase an toàn quan trọng nhất của app nên **không được** coi là xong | 🔴 cao | `.plan/P1F-result.md`, `.project/modules/tts-safety.md` mục 6 |
 | **K35** | **Half-duplex chưa nối** (đang thu thì không phát TTS và ngược lại) — ràng buộc #5 của `overview.md`; `SafeTtsOutput` không giữ tham chiếu tới tầng capture. Việc ghép là P4 | 🟠 vừa | `.project/modules/tts-safety.md` mục 7 |
 | **K36** | **Giới hạn nhận dạng thiết bị + engine TTS**: (a) không phân biệt được tai nghe A2DP với loa Bluetooth A2DP (cùng `TYPE_BLUETOOTH_A2DP`) ⇒ loa BT cũng bị coi là "riêng tư"; (b) kênh TTS chỉ đăng ký cho engine UI nên chưa phát được khi app ở nền (P3/P4 cần) | 🟡 thấp | `.project/modules/tts-safety.md` mục 7 |
+| **K37** | **F-P1F-1 — đòi xác nhận sai:** callback đầu của `registerAudioDeviceCallback` (baseline khi đăng ký) bị Dart phân loại thành "kết nối lại" ⇒ **mỗi lần mở app có tai nghe cắm sẵn đều phải bấm "Xác nhận tai nghe" trước khi đọc được**. Fail-closed (an toàn) nhưng phiền; sửa = phân biệt baseline với reconnect thật | 🟠 vừa | `.plan/P1F-result.md` mục "Cập nhật sau buổi test qua adb" |
+| **K38** | **Emergency Phrase chưa có gesture thật** — hiện chỉ có nút tạm trên màn hình chẩn đoán; giữ-nút-nổi-2-giây là P3 | 🟡 thấp | `.plan/P1G-result.md` |
+| **K39** | **P2: 5 mục DoD chưa verify trên máy thật** — cần APK mới + **Groq API key lưu qua `SecureStore`** (chưa có UI nhập key; hiện phải lưu bằng code/adb). Cụ thể: (a) Push khi `notUserSpeaking` ⇒ nudge hiện trên UI; (b) Push khi `userSpeaking` ⇒ **không request nào đi** (kiểm bằng logcat + `dumpsys`); (c) anti-repetition 2 lần trong 2 phút; (d) ngắt mạng ⇒ `NO_SUGGESTION` sau ~4s, không treo; (e) JSON lỗi ⇒ không crash. | 🔴 cao (chặn chất lượng P2) | `.plan/P2-result.md` |
+| **K40** | **P2: chưa có Offline Nudge Cache (mục 4.12)** — mất mạng hiện chỉ fail gracefully về `NO_SUGGESTION`; cache nudge là việc của P3 | 🟠 vừa | `lib/suggestion/README.md` |
 
 ## 4. Todo ngay tiếp theo (thứ tự)
 

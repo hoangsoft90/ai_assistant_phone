@@ -23,6 +23,7 @@ thái → việc còn thiếu → cảnh báo khi sửa.**
 | [Conversation state (VAD)](conversation-state.md) | `lib/audio/vad/*` + `android/.../audio/VadDetector.kt` | 🟡 **code xong (P1B), chưa verify trên máy** (0/4 mục DoD) |
 | [ASR engine](asr-engine.md) | `lib/audio/asr/*` + `android/.../asr/*.kt` + `cpp/*` | 🟡 **code xong (P1C + P1D)**; native compile xanh; chưa đo trên máy (K18/K19) |
 | [Transcript store](transcript-store.md) | `lib/transcript/*` + `lib/services/storage/transcript_dao.dart` | 🟡 **code xong (P1E)**; SQLite v2 + migration (kiểm offline); chưa chạy trên máy (K27/K28) |
+| [Suggestion engine](suggestion-engine.md) | `lib/suggestion/*` | 🟡 **code xong (P2)**; 25 test; chưa test máy thật (K38 — cần Groq API key) |
 | Core (hằng số + logging) | `lib/core/constants.dart`, `app_logger.dart` | ✅ xong cho phạm vi hiện tại — không cần file riêng |
 
 ## 3. Module SẢN PHẨM — CHƯA có code (kế hoạch)
@@ -40,8 +41,8 @@ phase tương ứng bắt đầu (và ghi vào bảng mục 2 lúc đó).
 | `asr-vosk` | P1D | ~~`lib/transcript/`~~ → thực tế `lib/audio/asr/` | Engine dự phòng + interface chung — **đã xong** (xem `asr-engine.md`) |
 > `transcript-store` (P1E) đã có code — xem bảng ở mục 2 phía trên (file: `transcript-store.md`).
 > `tts-safety` (P1F) đã có code — xem bảng ở mục 2 phía trên (file: `tts-safety.md`; **3 test case máy thật chưa chạy**).
-| `emergency-phrase` | P1G | `lib/trigger/` | Câu thoát hiểm phát hoàn toàn local, không qua LLM |
-| `suggestion-engine` | P2 | `lib/suggestion/` | Gọi LLM + Policy lọc gợi ý; fallback offline |
+> `emergency-phrase` (P1G) đã có code — xem `lib/audio/emergency/` (nút thật/gesture là P3).
+> `suggestion-engine` (P2) đã có code — xem bảng ở mục 2 (file: `suggestion-engine.md`).
 | `trigger-modes` | P3 | `lib/trigger/` | Cách kích hoạt gợi ý + chế độ hiển thị + cache nudge offline |
 | `pipeline-halfduplex` | P4 | ghép các tầng | Ghép toàn bộ luồng, đảm bảo half-duplex |
 | `prebrief-postreview` | P5 | `lib/ui/`, `lib/suggestion/` | Chuẩn bị trước cuộc nói + xem lại sau |

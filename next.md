@@ -4,7 +4,7 @@ Cập nhật: 2026-09-21 15:17 (+07). Nguồn: `.plan/production_roadmap.md`, `.
 
 ## Đang ở đâu
 
-- **Phase hiện tại: P1F — code xong, đang chờ chạy 3 test case bắt buộc trên máy thật (K34).** P1C–P1F đã code xong; điều còn thiếu xuyên suốt vẫn là **một vòng đo trên máy thật** (P0/P0.5/P1A/P1B/P1C/P1D/P1E/P1F đều nợ DoD đo trên máy — K2/K18/K19/K27/K34).
+- **Phase hiện tại: P2 — Suggestion Engine, code xong (161/161 test, đã sửa 3 lỗi High sau review), CHƯA commit.** P1C–P1G + P2 đã code xong; cả chuỗi còn nợ vòng xác minh trên máy thật (K34 P1F/P1G, K27 P1E đã xong, K38 P2). Buổi test P1F 2026-09-22 đã xác nhận đường phát TTS đầu-cuối trên máy thật (user nghe rõ) + phát hiện mất tai nghe; nên gộp các lần test máy thật còn lại vào một lượt (P1F rút-mid/TC2/TC3 + P1G emergency + P2 nudge).
 - Nguyên tắc: đi tuần tự, không nhảy cóc; mỗi phase phải tự kiểm Precondition và tự đối chiếu Definition of Done **có bằng chứng** trước khi báo xong.
 
 ## Bảng phase & trạng thái
@@ -18,9 +18,9 @@ Cập nhật: 2026-09-21 15:17 (+07). Nguồn: `.plan/production_roadmap.md`, `.
 | 5 | **P1C** ASR PhoWhisper (chính) | 🟡 **code xong, native compile XANH** (run #7); 0/4 DoD máy thật | Engine + JNI + model 29MB trong APK. Nợ K18 (đo máy thật). |
 | 6 | **P1D** ASR Vosk (dự phòng) + abstraction | 🟡 **code xong** (`82f91d2`, CI run mới); 2/4 DoD đạt | Vosk streaming + `AsrEngineSelector` (đổi engine qua config, fallback tự động). **PhoWhisper là mặc định tạm thời** — xem `lib/audio/asr/README.md`. Nợ K19 (đo máy thật), K20 (JNA), K21 (kích thước/RAM). |
 | 7 | **P1E** Transcript Store | 🟡 **code xong** (2/4 DoD đạt) | SQLite v2 + migration; rolling 8 phút trong RAM, xoá sau 7 ngày, khôi phục phiên sau khi bị kill; API text thô không nhãn cho P2. Nợ K27 (đo máy thật), K28 (có mã hoá DB không?). |
-| 8 | **P1F** TTS Output Safety Layer (A2DP-only) | 🟡 **code xong** (`386c3df`, CI run #22/#23 xanh); **0/3 test case máy thật** | Phase an toàn quan trọng nhất. `SafeTtsOutput` = cổng duy nhất phát âm thanh; native `TextToSpeech` → `AudioTrack.setPreferredDevice`, `USAGE_MEDIA`; 2 lớp dừng khi mất tai nghe. Nợ K34 (3 test case), K35 (half-duplex — P4), K36 (giới hạn thiết bị/engine). Xem `.project/modules/tts-safety.md`. |
-| 9 | **P1G** Emergency Phrase (local) | ⬜ | |
-| 10 | **P2** Suggestion Engine (LLM + Policy) | ⬜ | |
+| 8 | **P1F** TTS Output Safety Layer (A2DP-only) | 🟡 **code xong + ĐÃ TEST MỘT PHẦN trên máy thật** (2026-09-22: phát đầu-cuối ✅ user nghe rõ, mất-tai-nghe+rung ✅; còn rút-mid-playback, TC2, TC3) | Phase an toàn quan trọng nhất. `SafeTtsOutput` = cổng duy nhất phát âm thanh; native `TextToSpeech` → `AudioTrack.setPreferredDevice`, `USAGE_MEDIA`; 2 lớp dừng khi mất tai nghe. Nợ K34 (thu hẹp), K37 (đòi xác nhận mỗi lần mở app), K35 (half-duplex — P4), K36. Xem `.project/modules/tts-safety.md` + `.plan/P1F-result.md`. |
+| 9 | **P1G** Emergency Phrase (local) | 🟡 **code xong** (`lib/audio/emergency/`, 8 test mới — 130/130 pass); chưa build/máy thật | `triggerEmergency()` xoay vòng 3 câu cố định, gọi thẳng `SafeTtsOutput` (0 network/LLM — grep chứng minh), đo độ trễ trigger→tổng hợp. Nút tạm trên màn hình chẩn đoán; gesture thật là P3. Xem `.plan/P1G-result.md`. |
+| 10 | **P2** Suggestion Engine (LLM + Policy) | 🟡 **code xong** (`lib/suggestion/`, 29 test mới — 161/161 pass; có thêm 3 lỗi High tự tìm khi review, đã sửa); chưa test máy thật | Groq `llama-3.1-8b-instant` (chỉ gửi TEXT), policy chặn cứng `userSpeaking` + debounce 1s, prompt khung nguyên văn, anti-repetition 2 phút, `push()` không bao giờ ném. Nợ **K39** (5 mục DoD cần máy thật + Groq API key trong SecureStore) + **K40** (Offline Nudge Cache — P3). Xem `.plan/P2-result.md`. |
 | 11 | **P3** Trigger Abstraction + Output Modes + Offline Nudge Cache | ⬜ | |
 | 12 | **P4** Full Pipeline Integration (half-duplex) | ⬜ | |
 | 13 | **P5** Pre-Brief + Post-Review + Coaching + Training Level | ⬜ | |
@@ -32,7 +32,7 @@ Tổng ước tính tới lúc dùng được (bỏ P6): **~9–11 tuần**.
 ## Đã hoàn thành
 
 - Không có phase nào **hoàn thành trọn vẹn** (mọi phase đều thiếu vòng xác minh trên máy thật).
-- Code xong: P1A, P1B, P1C, P1D, P1E; P0/P0.5 xong phần không cần thiết bị.
+- Code xong: P1A, P1B, P1C, P1D, P1E, P1F, P1G, P2; P0/P0.5 xong phần không cần thiết bị.
 - Xong **phần chuẩn bị của P0** (không cần thiết bị): model PhoWhisper GGML tiny/base (f16 + q5_0), model Vosk small + lớn, 5 tool tái sử dụng được cho P1C/P1D, 5 file số liệu thô, code app spike 1129 dòng (analyze/test/JNI-syntax đều sạch), báo cáo `.plan/P0-result.md`.
 
 ## Việc sắp tới (theo thứ tự)

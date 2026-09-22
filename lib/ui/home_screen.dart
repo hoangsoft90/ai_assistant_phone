@@ -16,6 +16,8 @@ import '../audio/vad/conversation_state.dart';
 import '../audio/vad/conversation_state_notifier.dart';
 import '../core/app_logger.dart';
 import '../core/constants.dart';
+import '../suggestion/suggestion_models.dart';
+import '../suggestion/suggestion_service.dart';
 import '../services/foreground_service.dart';
 import '../services/permission_gate.dart';
 import '../services/storage/app_database.dart';
@@ -81,6 +83,13 @@ class _HomeScreenState extends State<HomeScreen> {
   /// P1G: câu thoát khẩn cấp — đường tắt 100% local, không qua LLM/network. Nút tạm dưới đây chỉ
   /// để kiểm trên máy thật; gesture thật (giữ nút nổi 2 giây) là việc của P3.
   final EmergencyPhraseService _emergency = EmergencyPhraseService();
+
+  /// P2: Suggestion Engine — nút "Xin gợi ý (P2)" bên dưới gọi `pushFromState()` (Policy đọc
+  /// trạng thái hội thoại từ chính state machine P1B). Nút thật + nudge hiển thị nghiêm túc là
+  /// việc của P3 (kèm Offline Nudge Cache).
+  late final SuggestionService _suggestion = SuggestionService();
+  SuggestionResult? _lastSuggestion;
+  bool _suggesting = false;
 
   AsrEngine? _asr;
   AsrEngineKind _asrKind = AsrEngineSelector.defaultKind;
@@ -350,6 +359,31 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// P2: xin gợi ý qua nút Push tạm. Policy chặn CỨNG trước khi gọi LLM; mọi lỗi đã được quy về
+  /// `NO_SUGGESTION` ở tầng service nên KHÔNG cần try/catch — kết quả luôn về (nudge hoặc không).
+  Future<void> _requestSuggestion() async {
+    setState(() => _suggesting = true);
+    try {
+      // Một lần Push thật = ghi mốc Push (P1E) + xin gợi ý: prompt khung cần "Mốc Push gần nhất"
+      // để LLM biết lượt nói của người dùng có khả năng vừa kết thúc quanh đó. Ghi mốc lỗi không
+      // được chặn việc xin gợi ý.
+      try {
+        await _transcript.markPushMoment(DateTime.now());
+      } catch (error) {
+        _log.warn('không ghi được mốc Push: $error');
+      }
+      final SuggestionResult result = await _suggestion.pushFromState();
+      _log.info('Push gợi ý: $result');
+      if (mounted) {
+        setState(() => _lastSuggestion = result);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _suggesting = false);
+      }
+    }
+  }
+
   /// Hàng đợi SnackBar: mọi lỗi/tiến trình đi qua đây để không tự ý gọi `context` sau khi
   /// widget đã bị hủy, và không hiện đè nhau khi nhiều lỗi đến liên tục.
   void _enqueueSnack(String message) {
@@ -542,6 +576,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.headset_outlined),
             label: const Text('Xác nhận tai nghe đã sẵn sàng (P1F)'),
           ),
+          const SizedBox(height: 8),
           // P1G: nút tạm để kiểm Emergency Phrase trên máy thật (gesture thật là P3). Không có
           // dialog xác nhận nào — đường khẩn cấp phải phản hồi ngay lập tức.
           OutlinedButton.icon(
@@ -550,6 +585,13 @@ class _HomeScreenState extends State<HomeScreen> {
             label: const Text('Emergency Phrase (P1G)'),
           ),
           const SizedBox(height: 8),
+          // P2: nút Push tạm (nút thật là P3). Policy chặn CỨNG userSpeaking trước khi gọi LLM;
+          // chưa có API key thì provider tự ném ⇒ quy về NO_SUGGESTION kèm note (không crash).
+          OutlinedButton.icon(
+            onPressed: _suggesting ? null : () => unawaited(_requestSuggestion()),
+            icon: const Icon(Icons.lightbulb_outline),
+            label: const Text('Xin gợi ý (P2)'),
+          ),
           const SizedBox(height: 24),
           _statusCard(),
         ],
@@ -596,6 +638,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _infoRow('TTS', _ttsText()),
             _infoRow('Emergency', _emergencyText()),
             _infoRow('Nhận dạng', _lastTranscript),
+            _infoRow('Gợi ý (P2)', _suggestionText()),
             _infoRow('Transcript', _transcriptText()),
             _infoRow('Push gần nhất', _pushText()),
             _infoRow('Lưu trữ', _databaseStatus),
@@ -646,6 +689,19 @@ class _HomeScreenState extends State<HomeScreen> {
       buffer.write(' · khôi phục ${_transcript.recoveredSegmentCount} dòng sau khi app bị kill');
     }
     return buffer.toString();
+  }
+
+  /// Kết quả gợi ý gần nhất (P2) cho màn hình chẩn đoán: nudge hiển thị kèm type; NO_SUGGESTION
+  /// hiển thị nguyên nhân (bị chặn / LLM lỗi / không có gì đáng nói) để biết vì sao không gợi ý.
+  String _suggestionText() {
+    final SuggestionResult? result = _lastSuggestion;
+    if (result == null) {
+      return 'chưa bấm Push';
+    }
+    if (result.isNudge) {
+      return '${result.type!.apiName}: "${result.text}"';
+    }
+    return 'NO_SUGGESTION${result.note == null ? '' : ' · ${result.note}'}';
   }
 
   /// Mốc Push gần nhất (P1E) — P2 sẽ đưa mốc này vào prompt LLM.

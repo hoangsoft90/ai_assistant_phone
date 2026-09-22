@@ -52,6 +52,9 @@ dependencies:
   # Lưu API key (dùng từ P2) — keystore/keychain của hệ điều hành.
   flutter_secure_storage: ^11.2.0
 
+  # P2: gọi Groq chat completions (HTTP client chuẩn, timeout config được).
+  http: ^1.5.0
+
   # Quyền runtime (mic + notification). Cần thật để foreground service type=microphone
   # chạy được trên Android 14+ và để notification hiện trên Android 13+.
   # PIN 12.0.1 (không nâng lên 13/14): permission_handler_android 14.x đòi compileSdk 37, mà

@@ -225,20 +225,61 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
   trên máy (cần 2 lần bấm — chờ user hoặc lúc máy rảnh).
 - [ ] **K32 (🟡) — RAM khi ASR chạy (K21):** chưa đo `dumpsys meminfo` trong lúc ASR bật.
 
-### Thuộc P1F (DoD chưa xác minh — cần APK + máy thật + tai nghe) — K34 🔴
+### Thuộc P1F (đã test MỘT PHẦN trên máy thật 2026-09-22 — K34 thu hẹp)
 
 > Phase an toàn quan trọng nhất của app: **không được** tick chỉ vì code chạy không lỗi.
 > Lệnh thu bằng chứng: `adb logcat -v time -s SafeTts:V flutter:V | tee /tmp/p1f_run.log`
-> và `adb shell dumpsys audio | grep -iE "a2dp|sco|ForceUse"`.
+> và `adb shell dumpsys audio | grep -iE "a2dp|sco|ForceUse"`. Chi tiết buổi test:
+> `.plan/P1F-result.md` mục "Cập nhật sau buổi test qua adb".
 
-- [ ] **Test case 1:** rút tai nghe **giữa lúc đang đọc** → log `becomingNoisy`/`MẤT thiết bị riêng tư`
-  + `đã DỪNG phát TTS` + rung 2 nhịp, **không** nghe gì từ loa ngoài (xác nhận bằng tai + video).
+- [x] **Phát TTS đầu-cuối qua tai nghe (fix A45 hiệu lực thật):** log `đã phát 111946/111946 byte`,
+  **user xác nhận nghe rõ**, `SCO_STATE_INACTIVE`, route `USAGE_MEDIA`.
+- [x] **Phát hiện mất tai nghe + rung 2 nhịp:** `MẤT thiết bị riêng tư: 4` → `đã rung: HEADSET_LOST` (9ms);
+  `Connected devices` rỗng sau rút; chặn phát khi chưa xác nhận (fail-closed) được xác minh thật.
+- [x] Dòng `TTS` trên màn hình chẩn đoán hiện đúng thiết bị: `Pixel 3a (type 4) · 1 thiết bị riêng tư`.
+- [ ] **Rút tai nghe GIỮA LÚC ĐANG ĐỌC** — 2 lần thử đều rút sau khi clip đã phát xong (2,5s tổng hợp
+  im lặng trước khi tiếng ra làm lỡ nhịp); chưa có bằng chứng dừng-mid-playback.
 - [ ] **Test case 2:** rút tai nghe rồi mới bấm đọc → `không có tai nghe ⇒ KHÔNG phát TTS` + rung 1 nhịp,
-  không có AudioTrack nào được tạo.
-- [ ] **Test case 3:** tắt kết nối Bluetooth trong Cài đặt **giữa lúc đang đọc** → hành vi như test case 1.
-- [ ] Sau khi mất kết nối: bấm "Đọc thử" tiếp → phải bị chặn (`chưa xác nhận route`) cho tới khi bấm
-  nút **"Xác nhận tai nghe đã sẵn sàng (P1F)"**.
-- [ ] Dòng `TTS` trên màn hình chẩn đoán hiện đúng tên/loại thiết bị đang được coi là tai nghe.
+  không có AudioTrack nào được tạo. (user dừng buổi test trước khi tới case này)
+- [ ] **Test case 3:** tắt kết nối Bluetooth trong Cài đặt **giữa lúc đang đọc** — chưa có tai nghe BT.
+- [ ] **K37 — F-P1F-1:** callback baseline của `registerAudioDeviceCallback` bị coi là "kết nối lại"
+  ⇒ mỗi lần mở app có tai nghe sẵn đều đòi bấm Xác nhận. Sửa trước P3.
+
+### Thuộc P1G (code xong 2026-09-22 — chưa build/máy thật)
+
+- [x] `lib/audio/emergency/` — `emergency_phrases.dart` (file cấu hình riêng, 3 câu prompt) +
+  `emergency_phrase_service.dart` (`triggerEmergency()` xoay vòng, gọi thẳng `SafeTtsOutput`,
+  đo `lastTriggerToSynthLatency`).
+- [x] 8 unit test mới (130/130 pass) — gồm: 0 network/LLM (grep), không tai nghe ⇒ 0 gọi native
+  speak + 1 rung, xoay vòng, failed không retry.
+- [x] Nút tạm `Emergency Phrase (P1G)` + dòng `Emergency` trên màn hình chẩn đoán (gesture thật = P3).
+- [ ] **Chạy trên máy thật:** phát được câu qua tai nghe + độ trễ đọc từ dòng Emergency; trigger khi
+  KHÔNG tai nghe ⇒ im lặng + rung (chạy gộp với K34); rút tai nghe giữa lúc emergency đang đọc.
+
+### Thuộc P2 (code xong 2026-09-22 — 161/161 test, chưa build/máy thật)
+
+> Nợ **K39**. Cách test: lưu Groq API key vào `SecureStore`, bật app, bấm nút **"Xin gợi ý (P2)"**
+> (nút này tự ghi mốc Push rồi xin gợi ý), xem dòng `Gợi ý (P2)` trên màn hình chẩn đoán +
+> `adb logcat -v time -s Suggestion:V flutter:V`.
+
+- [x] `lib/suggestion/` — 6 file: `suggestion_models.dart`, `llm_provider.dart`,
+  `groq_llm_provider.dart`, `suggestion_policy.dart`, `suggestion_context_builder.dart`,
+  `session_memory.dart` (+ `suggestion_service.dart` nối tầng UI — ngoài danh sách bàn giao của prompt).
+- [x] **Prompt khung dùng NGUYÊN VĂN** — đối chiếu tự động từng dòng với `.plan/prompt_P2.md` mục 4:
+  khớp đủ, không dòng nào thiếu/sửa; test `prompt khung NGUYÊN VĂN` khoá lại trong CI.
+- [x] 29 unit test mới (161/161 pass): chặn `userSpeaking` (provider 0 lần gọi), debounce 1s,
+  anti-repetition 2 phút, retry JSON lỗi đúng 1 lần, timeout/mất mạng KHÔNG retry, parse 2 dạng hợp lệ
+  + code fence, Groq provider (endpoint/header/model/HTTP 500/offline/thiếu key/thiếu content),
+  **envelope dị dạng ⇒ SuggestionException chứ không `TypeError`** (2 test regression cho H1/H2/H3 của
+  đợt review — xem `.plan/P2-result.md` mục 9, bài học A50).
+- [x] Cách ly: grep chứng minh `lib/suggestion/` không đụng audio, không key cứng, không import ngoài dự kiến.
+- [ ] **DoD-1 — Push khi `notUserSpeaking` ⇒ gọi LLM, parse, hiện nudge hoặc không hiện gì** (máy thật).
+- [ ] **DoD-2 — Push khi `userSpeaking` ⇒ KHÔNG có request nào gửi đi** (máy thật: log `Push bị chặn bởi
+  policy: userSpeaking` + không có kết nối ra ngoài).
+- [ ] **DoD-3 — anti-repetition:** bấm Push 2 lần trong 2 phút ⇒ lần 2 không trùng chủ đề/type (máy thật).
+- [ ] **DoD-4 — timeout:** ngắt mạng, bấm Push ⇒ app không treo, `NO_SUGGESTION` sau ~4s (máy thật).
+- [ ] **DoD-5 — JSON lỗi** ⇒ app không crash (đã có unit test mock; máy thật không cần lặp lại).
+- [ ] **K40 (🟠) — Offline Nudge Cache (mục 4.12):** chưa có, P3 làm.
 
 ### Thuộc P1B (DoD chưa xác minh — cần APK + máy thật)
 
