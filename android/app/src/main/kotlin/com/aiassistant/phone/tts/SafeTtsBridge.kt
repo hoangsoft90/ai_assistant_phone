@@ -85,6 +85,13 @@ class SafeTtsEngine(
     /** `AudioTrack` đang phát; `null` = không có gì đang phát. */
     private var track: AudioTrack? = null
 
+    /**
+     * Khoá chung giữa đường PHÁT (gán `track` + `play()`) và đường DỪNG (tăng thế hệ + `pause()`).
+     * Không có khoá này thì lệnh dừng xen đúng giữa `track = ...` và `play()` sẽ bị "mất": code
+     * phát vẫn gọi `play()` sau khi đã dừng ⇒ khe hở an toàn rất hẹp nhưng không được phép tồn tại.
+     */
+    private val playLock = Any()
+
     /** Đang chờ `synthesizeToFile` trả `onDone`. */
     @Volatile
     private var synthesizing = false
@@ -442,14 +449,15 @@ class SafeTtsEngine(
                     newTrack.release()
                     return@execute
                 }
-                if (gen != generation.get()) {
-                    Log.w(TAG, "thế hệ đổi trong lúc chuẩn bị phát ⇒ KHÔNG phát")
-                    newTrack.release()
-                    return@execute
+                synchronized(playLock) {
+                    if (gen != generation.get()) {
+                        Log.w(TAG, "thế hệ đổi trong lúc chuẩn bị phát ⇒ KHÔNG phát")
+                        newTrack.release()
+                        return@execute
+                    }
+                    track = newTrack
+                    newTrack.play()
                 }
-
-                track = newTrack
-                newTrack.play()
                 var offset = 0
                 while (offset < pcm.data.size && gen == generation.get()) {
                     val written = newTrack.write(pcm.data, offset, pcm.data.size - offset)
@@ -458,6 +466,29 @@ class SafeTtsEngine(
                         break
                     }
                     offset += written
+                }
+
+                // `write()` blocking chỉ đảm bảo dữ liệu đã được ENQUEUE vào buffer, **không** phải đã
+                // phát ra loa (tài liệu Android). Nếu release ngay, `flush()` trong `releaseTrack()` sẽ
+                // vứt toàn bộ phần chưa phát — "discard audio data that hasn't been played back yet" —
+                // tức là câu TTS gần như không nghe được gì. Vì vậy phải CHỜ đầu phát đi hết số frame
+                // đã ghi, và vẫn kiểm `gen` mỗi 20ms để lúc mất tai nghe thì dừng tức thì.
+                val bytesPerFrame = (pcm.bitsPerSample / 8) * pcm.channels
+                val framesWritten = if (bytesPerFrame > 0) offset / bytesPerFrame else 0
+                val durationMs =
+                    if (pcm.sampleRate > 0) framesWritten * 1000L / pcm.sampleRate else 0L
+                val deadline = System.currentTimeMillis() + durationMs + 2000L
+                while (gen == generation.get() && newTrack.playbackHeadPosition < framesWritten) {
+                    if (System.currentTimeMillis() > deadline) {
+                        Log.w(TAG, "chờ phát xong quá hạn (${durationMs}ms) — dừng chờ")
+                        break
+                    }
+                    try {
+                        Thread.sleep(20)
+                    } catch (interrupted: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
                 }
                 Log.i(TAG, "đã phát ${offset}/${pcm.data.size} byte (gen=$gen)")
                 if (gen == generation.get()) {
@@ -477,11 +508,26 @@ class SafeTtsEngine(
     fun stop(): Boolean = stopPlaybackInternal()
 
     private fun stopPlaybackInternal(keepGeneration: Boolean = false): Boolean {
-        val wasActive = track != null || synthesizing
-        if (!keepGeneration) {
-            generation.incrementAndGet()
+        val wasActive: Boolean
+        synchronized(playLock) {
+            wasActive = track != null || synthesizing
+            if (!keepGeneration) {
+                generation.incrementAndGet()
+            }
+            synthesizing = false
+            // CHỈ `pause()` ở đây: nó tắt tiếng ngay lập tức và gọi được từ BẤT KỲ thread nào.
+            // Việc `flush()/stop()/release()` để chính thread phát làm trong `finally` — tránh việc
+            // release AudioTrack đúng lúc thread đó đang nằm trong `write()` (dễ ném
+            // IllegalStateException, làm log rối và khó phân biệt với lỗi thật khi đo trên máy).
+            val current = track
+            if (current != null) {
+                try {
+                    current.pause()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "pause AudioTrack lỗi: ${t.message}")
+                }
+            }
         }
-        synthesizing = false
         val engine = tts
         if (engine != null) {
             try {
@@ -490,7 +536,6 @@ class SafeTtsEngine(
                 Log.w(TAG, "TTS stop lỗi: ${t.message}")
             }
         }
-        releaseTrack()
         cleanTemp()
         if (wasActive) {
             Log.w(TAG, "đã DỪNG phát TTS")
@@ -498,6 +543,11 @@ class SafeTtsEngine(
         return wasActive
     }
 
+    /**
+     * Giải phóng `AudioTrack`. **Chỉ** gọi từ chính thread phát (`finally` của `playSynthesized`) —
+     * đường dừng (`stopPlaybackInternal`) cố ý chỉ `pause()` để không release track trong lúc thread
+     * phát còn đang nàm trong `write()`.
+     */
     private fun releaseTrack() {
         val current = track
         track = null

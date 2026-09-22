@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-
 import '../../core/app_logger.dart';
 import 'tts_channels.dart';
 import 'tts_client.dart';
@@ -82,7 +80,10 @@ class SafeTtsOutput {
 
   final TtsClient _client;
 
-  final ValueNotifier<TtsOutputState> _state = ValueNotifier<TtsOutputState>(TtsOutputState.unknown);
+  /// Trạng thái hiện tại. Cố ý là **field thường**, không phải `ValueNotifier`: UI đọc nó trong
+  /// `setState` (dòng `TTS` còn phụ thuộc `lastInfo`/`isSpeaking` nên một listenable riêng cho state
+  /// là API thừa — đã xoá sau review, bài học A8).
+  TtsOutputState _state = TtsOutputState.unknown;
   final StreamController<TtsFallbackNotice> _fallbacks = StreamController<TtsFallbackNotice>.broadcast();
 
   /// `true` = có tai nghe theo lần đọc gần nhất.
@@ -98,9 +99,7 @@ class SafeTtsOutput {
   bool _speaking = false;
 
   /// Trạng thái để UI hiển thị (không tự hỏi native — gọi [refresh] khi cần).
-  ValueListenable<TtsOutputState> get stateListenable => _state;
-
-  TtsOutputState get state => _state.value;
+  TtsOutputState get state => _state;
 
   /// Nguồn nudge chữ cho UI (SnackBar/dòng trạng thái). Phát cả khi bị chặn vì an toàn.
   Stream<TtsFallbackNotice> get fallbacks => _fallbacks.stream;
@@ -147,7 +146,7 @@ class SafeTtsOutput {
     }
 
     // 3) Không có tai nghe ⇒ KHÔNG gọi native speak; rung + nudge chữ.
-    if (!_hasOutput || _state.value != TtsOutputState.ready) {
+    if (!_hasOutput || _state != TtsOutputState.ready) {
       await _notifyNoHeadset();
       return TtsSpeakResult.skippedNoHeadset;
     }
@@ -195,7 +194,7 @@ class SafeTtsOutput {
   Future<void> confirmHeadsetReady() async {
     _needsConfirmation = false;
     await refresh();
-    _log.info('người dùng đã xác nhận route TTS (state=${_state.value.name})');
+    _log.info('người dùng đã xác nhận route TTS (state=${_state.name})');
   }
 
   // ------------------------------------------------------------------ nội bộ
@@ -204,10 +203,10 @@ class SafeTtsOutput {
     final TtsOutputState next = (!_hasOutput || _needsConfirmation)
         ? TtsOutputState.silent
         : TtsOutputState.ready;
-    if (_state.value != next) {
-      _log.info('trạng thái TTS: ${_state.value.name} → ${next.name} '
+    if (_state != next) {
+      _log.info('trạng thái TTS: ${_state.name} → ${next.name} '
           '(hasOutput=$_hasOutput, needsConfirmation=$_needsConfirmation)');
-      _state.value = next;
+      _state = next;
     }
   }
 
@@ -227,7 +226,9 @@ class SafeTtsOutput {
       case TtsEventType.headsetFound:
         // KHÔNG tự cho phép phát lại: route coi như chưa ổn định cho tới khi người dùng xác nhận.
         _needsConfirmation = true;
-        _hasOutput = event.state?.hasPrivateOutput ?? true;
+        // `?? false`: sự kiện thiếu thông tin thiết bị thì coi như KHÔNG có tai nghe (hướng an toàn),
+        // không mặc định là "có" — dù hiện tại `needsConfirmation` đã chặn phát trong cả hai trường hợp.
+        _hasOutput = event.state?.hasPrivateOutput ?? false;
         _applyState();
         _emit(
           TtsFallbackKind.needsConfirmation,
