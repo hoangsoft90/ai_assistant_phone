@@ -38,25 +38,37 @@ set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 #
 # Hiện tượng: APK debug 1 chunk 4s mất ~160s (RTF ≈ 39, CPU 236%); bản host P0 (Release) là 0.29.
 # Nguyên nhân:
-#  1) AGP configure CMake theo variant build (`> Task :app:configureCMakeDebug[abi]`) mà project
-#     KHÔNG set CMAKE_BUILD_TYPE ⇒ NDK dùng cờ debug của nó, tức **-O0** cho toàn bộ whisper.cpp
-#     + ggml. Host P0 thì build `-DCMAKE_BUILD_TYPE=Release`.
-#  2) `GGML_NATIVE=OFF` (ở trên) nên không có -march nào ⇒ kernel dotprod/fp16 của ggml KHÔNG được
-#     biên dịch, dù CPU máy thật (Pixel 3a: Cortex-A75 + A55) có cả hai.
+#  1) AGP configure CMake theo variant build (`> Task :app:configureCMakeDebug[abi]`) và đặt
+#     `CMAKE_BUILD_TYPE=debug` (**chữ thường**) — bước CI "Kiểm chứng native" in ra đúng dòng đó,
+#     đồng thời cache KHÔNG có `CMAKE_C_FLAGS_DEBUG`/`CMAKE_CXX_FLAGS_DEBUG` ⇒ **không có cờ -O nào
+#     được truyền** ⇒ clang biên dịch ở mức mặc định `-O0` cho toàn bộ whisper.cpp + ggml.
+#     Host P0 thì build `-DCMAKE_BUILD_TYPE=Release` ⇒ hai bên chênh nhau cả chục lần tốc độ.
+#  2) `GGML_NATIVE=OFF` (ở trên) nên không có -march nào ⇒ ggml chỉ dùng kernel NEON cơ bản (kernel
+#     dotprod không được biên dịch). Lưu ý: KHÔNG thể bật đại bằng `-march=...dotprod...` cho máy này
+#     — xem cảnh báo ⛔ ngay dưới, đã thử và crash thật.
 #
 # Cách sửa: dùng add_compile_options (KHÔNG phải CMAKE_CXX_FLAGS) — vì cờ của thư mục/target được
 # chèn SAU cờ của build type, mới thắng được -O0 mà AGP truyền vào. Đặt trước FetchContent_MakeAvailable
 # để mọi target con (whisper, ggml, ggml-base, ggml-cpu) đều thừa hưởng.
 add_compile_options(-O3)
 
-# dotprod/fp16 là phần tăng tốc lớn nhất cho q5_0/q8_0 (kernel quantize).
-# ⚠ Đánh đổi đã biết: cờ này biên dịch cứng theo armv8.2 ⇒ máy arm64 đời cũ (Cortex-A53,
-# Snapdragon 625/660) KHÔNG có dotprod sẽ SIGILL. Chấp nhận ở giai đoạn đo máy test; TRƯỚC KHI
-# phân phối rộng phải chuyển sang nhiều biến thể ABI (armv8-a / armv8.2) hoặc để ggml dispatch
-# theo CPU lúc chạy.
-if(ANDROID_ABI STREQUAL "arm64-v8a")
-  add_compile_options(-march=armv8.2-a+dotprod+fp16)
-endif()
+# ⛔ KHÔNG THÊM `-march` CÓ dotprod Ở ĐÂY — ĐÃ GÂY CRASH THẬT TRÊN MÁY (2026-09-22).
+#
+# Tôi từng thêm `-march=armv8.2-a+dotprod+fp16` cho arm64-v8a (giả định "CPU đời mới thì có dotprod").
+# Kết quả trên Pixel 3a (Snapdragon 670): app **crash ngay chunk ASR đầu tiên**:
+#   signal 4 (SIGILL), code 1 (ILL_ILLOPC) tại libggml-cpu.so (ggml_vec_dot_q5_0_q8_0+256)
+#   → ggml_compute_forward_mul_mat → ggml_graph_compute → whisper_full
+# Bằng chứng CPU (lấy từ chính máy, KHÔNG suy đoán):
+#   Features: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp **asimdhp**   (không có `asimddp`)
+#   CPU part: 0x803 (Cortex-A75) ×6 + 0x802 (Cortex-A55) ×2
+# ⇒ Cortex-A75 trên máy này KHÔNG có extension dot product ⇒ mọi cặp lệnh SDOT/UDOT của kernel
+#    quantize đều là lệnh cấm. Cờ biên dịch theo -march là biên dịch CỨNG cho cả file ⇒ không có
+#    đường dispatch lúc chạy để cứu.
+#
+# Muốn lấy tốc độ dotprod mà không crash thì phải: build 2 biến thể (armv8-a và armv8.2+dotprod) rồi
+# CHỌN LÚC CHẠY theo HWCAP (cách ggml mới làm với GGML_BACKEND_DL/GGML_CPU_ALL_VARIANTS), hoặc dùng
+# `getauxval(AT_HWCAP)` để tự kiểm trước. Kiểm CPU bằng `adb shell grep Features /proc/cpuinfo`
+# TRƯỚC khi bật bất kỳ cờ kiến trúc nào.
 
 FetchContent_MakeAvailable(whisper)
 

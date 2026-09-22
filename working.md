@@ -113,4 +113,10 @@
   `CMAKE_BUILD_TYPE`, host P0 build Release); `GGML_NATIVE=OFF` không kèm `-march` (mất dotprod/fp16);
   chunk 4s bị pad ~30s bởi whisper. Thêm **K30** `abiFilters` vô hiệu (APK **155MB / 3 ABI**), **K31**
   `libjnidispatch.so` có trong APK ✅ (runtime chưa test), **K32** RAM chưa đo.
-  Đã ghi bài học **A36–A40** + thứ tự sửa đề xuất vào `.plan/P1E-result.md`. **Không tự sửa** — chờ user.
+  Đã ghi bài học **A36–A40** + thứ tự sửa đề xuất vào `.plan/P1E-result.md`.
+- [2026-09-22] **Sửa K29a+b+c + K30** (user duyệt) — commit `2ecdd3b`: `threads` mặc định = tự động
+  `min(4, số nhân)` (+2 test khoá); `add_compile_options(-O3)` đặt trước `FetchContent_MakeAvailable`
+  (cờ thư mục/target chèn sau cờ build type ⇒ mới thắng `-O0` của variant Debug);
+  `-march=armv8.2-a+dotprod+fp16` cho arm64-v8a; `disable-abi-filtering=true` để plugin Flutter không
+  ghi đè `abiFilters`. Thêm bước CI in `CMakeCache` + `compile_commands` + ABI thật trong APK.
+  Verify local: `flutter analyze` sạch · **97/97 test**. Chờ CI xanh → cài APK mới → đo lại RTF (K29).

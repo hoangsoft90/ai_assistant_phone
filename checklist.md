@@ -172,24 +172,30 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [ ] **K29 (🔴) — ASR KHÔNG đạt tốc độ realtime:** 1 chunk 4s mất **~160s** (RTF ≈ 39); sau 236s
   audio chỉ ra được vài dòng và **59 chunk bị bỏ** (chính sách bỏ chunk cũ nhất) — CPU app ~236% liên
   tục. Bốn nguyên nhân đã khoanh vùng, **cộng dồn** là đủ để giải thích 39x so với host:
-  - [ ] **K29a — `threads = 2`** (`PhoWhisperAsrEngine.threads` mặc định 2) trên máy **8 nhân**;
-    bản đo host P0 dùng **4 threads**. Sửa 1 dòng config, đo lại trước khi đụng chỗ khác.
-  - [ ] **K29b — native build theo variant Debug:** CI log có `:app:configureCMakeDebug[abi]` và
+  - [x] **K29a — `threads = 2`** trên máy **8 nhân** ⇒ **đã sửa `2ecdd3b`:** `threads = 0` = tự động
+    `min(4, số nhân)` (`resolvedThreads`) + 2 test khoá hành vi + log in `threads=x/8 nhân`.
+  - [x] **K29b — native build theo variant Debug:** ⇒ **đã sửa `2ecdd3b`:** thêm `add_compile_options(-O3)`
+    TRƯỚC `FetchContent_MakeAvailable` (cờ thư mục/target được chèn sau cờ build type mới thắng `-O0`),
+    kèm bước CI in `CMakeCache.txt` + `compile_commands.json` để có bằng chứng cờ. Ghi gốc:
+    CI log có `:app:configureCMakeDebug[abi]` và
     **không có** `-DCMAKE_BUILD_TYPE` nào trong `CMakeLists.txt`/`build.gradle.kts` ⇒ whisper.cpp +
     ggml biên dịch theo Debug của NDK (`-O0`). Host P0 build `-DCMAKE_BUILD_TYPE=Release`
     (`spikes/p0_audio/tools/convert_phowhisper.sh` dòng 52). **Xác nhận dứt điểm** bằng cách thêm 1
     bước CI in `build/.cxx/Debug/*/arm64-v8a/CMakeCache.txt` + `compile_commands.json` (2 lib đã bị
     strip DWARF nên không đọc được cờ từ `.so`).
-  - [ ] **K29c — không có SIMD dotprod/fp16:** `GGML_NATIVE=OFF` (CMakeLists dòng 30) mà không thêm
-    `-march=armv8.2-a+dotprod+fp16` ⇒ kernel dotprod/i8mm/fp16 không được biên dịch, dù CPU Pixel 3a
-    (Cortex-A75 + A55) **có** hỗ trợ dotprod.
+  - [x] **K29c — không có SIMD dotprod/fp16** ⇒ **đã sửa `2ecdd3b`:** thêm
+    `-march=armv8.2-a+dotprod+fp16` cho `arm64-v8a` (kèm ghi chú đánh đổi: máy arm64 đời cũ không có
+    dotprod sẽ SIGILL ⇒ phải làm nhiều biến thể trước khi phát hành rộng). Gốc: `GGML_NATIVE=OFF`
+    (CMakeLists dòng 30) mà không thêm `-march` ⇒ kernel dotprod/i8mm/fp16 không được biên dịch, dù
+    CPU Pixel 3a (Cortex-A75 + A55) **có** hỗ trợ dotprod.
   - [ ] **K29d — chunk 4s + whisper pad ~30s:** `whisper_full` luôn mã hoá mel theo cửa sổ ~30s, nên
     chi phí 1 chunk 4s ≈ chi phí 30s audio ⇒ chọn chunk nhỏ làm RTF phóng đại ~7x. Cần đo A/B trên
     host (chunk 4s vs 10–15s) trước khi kết luận thuật toán có khả thi.
-- [ ] **K30 (🟠) — `abiFilters` không có tác dụng:** `ndk { abiFilters += listOf("arm64-v8a") }` nhưng
-  APK đang cài **155MB, chứa 3 ABI** (arm64-v8a + armeabi-v7a + x86_64 — cả `libwhisper.so`), CI cũng
-  configure CMake cho `[armeabi-v7a]`, `[x86]`, `[x86_64]`. Chỉ ship arm64 ⇒ APK còn ~55MB và CI build
-  nhanh hơn nhiều.
+- [x] **K30 (🟠) — `abiFilters` bị plugin Flutter ghi đè** ⇒ **đã sửa `2ecdd3b`:** gốc là
+  `FlutterPlugin.configureAbiWithoutSplits()` gọi `abiFilters.clear()` + `addAll(PLATFORM_ABI_LIST)`
+  = [armeabi-v7a, arm64-v8a, x86_64] **sau** khi app khai báo ⇒ phải bật property
+  `disable-abi-filtering=true` trong `android/gradle.properties`. Bằng chứng cũ: APK **155MB, 3 ABI**,
+  CI configure CMake cho cả `[armeabi-v7a]`/`[x86_64]`. Bước CI mới sẽ in ABI thật trong APK để chốt.
 - [ ] **K31 (🟠) — JNA/Vosk:** `libjnidispatch.so` **có trong APK cho arm64-v8a** ✅ (phần packaging
   đạt, `useLegacyPackaging` hoạt động). Còn thiếu xác nhận **runtime**: chọn engine Vosk + bật ASR
   trên máy (cần 2 lần bấm — chờ user hoặc lúc máy rảnh).
