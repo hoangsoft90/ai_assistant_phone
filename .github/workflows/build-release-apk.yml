@@ -101,7 +101,10 @@ jobs:
           with open('apk_size.txt', 'w') as f:
               f.write(f'{size:.1f} MB | {len(libs)} .so | ABI {abis}\n')
           PY
-          MAPPING=$(ls -1 android/app/build/outputs/mapping/release/mapping.txt 2>/dev/null || true)
+          # Flutter plugin redirect toàn bộ build output ra `build/` ở GỐC repo (không phải
+          # android/app/build/) — đã xác minh từ log run 35821096343 (missing_rules.txt nằm ở
+          # <repo>/build/app/outputs/mapping/release/). Tra sai chỗ thì warning dối "R8 chưa chạy".
+          MAPPING=$(ls -1 build/app/outputs/mapping/release/mapping.txt 2>/dev/null || true)
           if [ -n "$MAPPING" ]; then
             echo "R8 mapping: $MAPPING ($(wc -l < "$MAPPING") dòng)"
           else
@@ -123,6 +126,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-mapping-txt
-          path: android/app/build/outputs/mapping/release/mapping.txt
+          path: build/app/outputs/mapping/release/mapping.txt
           if-no-files-found: ignore
           retention-days: 14
