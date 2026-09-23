@@ -337,7 +337,7 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [x] Tự review: sửa **rò subscription** stream transcript của ASR (mỗi lần restart để lại một subscription sống) + **reset số đếm khi bắt đầu phiên mới** (nếu tích tụ thì số liệu mất giá trị làm bằng chứng); bỏ 1 getter không có caller (bài học A8).
 - [ ] ⚠ **5/6 mục DoD chưa verify trên máy thật** (nợ **K46**): phiên hội thoại thật ≥ 30 phút không crash, xác nhận half-duplex bằng tai + `dumpsys audio`, đo pin/độ trễ thật, rút tai nghe giữa phiên thật, ngắt mạng giữa phiên.
 - [x] Tìm ra lỗi native **K45** khi tự review: phát câu mới khi câu trước còn đang đọc ⇒ câu mới **im lặng** (field `tempWav` dùng chung giữa hai "thế hệ"). Ảnh hưởng trực tiếp **Emergency Phrase**. ✅ **Đã sửa ở tầng code** (theo yêu cầu user trong commit P4): tên file = hàm của số thế hệ (`wavFor`), `playSynthesized` giữ file của chính nó, `cleanTemp(file)` chỉ null field nếu còn trỏ đúng file, `onError` dùng `cleanTempOfGeneration` (call-site thứ hai cùng họ lỗi — A54).
-- [ ] ⚠ **K45 chưa xác nhận hành vi trên máy thật**: còn chờ CI biên dịch Kotlin (máy dev không có Android SDK), và phải nghe được câu thoát hiểm khi **giữ nút nổi 2 giây đúng lúc đang đọc nudge** và log không có `không có file WAV để phát` (bước 7 giáo trình test trong `.plan/P4-result.md`).
+- [ ] ⚠ **K45 chưa xác nhận hành vi trên máy thật**: CI đã biên dịch **XANH** (run `35808819851`, artifact `app-debug-apk`), nhưng vẫn phải nghe được câu thoát hiểm khi **giữ nút nổi 2 giây đúng lúc đang đọc nudge** và log không có `không có file WAV để phát` (bước 7 giáo trình test trong `.plan/P4-result.md`).
 
 ## Cần làm (thứ tự đề xuất)
 
