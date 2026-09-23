@@ -16,6 +16,13 @@
 -keep class com.sun.jna.* { *; }
 -keepclassmembers class * extends com.sun.jna.* { public *; }
 
+# JNA có sẵn lớp tích hợp desktop (`Native$AWT`) tham chiếu `java.awt.*` — package KHÔNG tồn tại
+# trên Android (chỉ Java SE). Đường code này là dead code thực sự trên Android: không thể được
+# thực thi, chỉ là tham chiếu nằm trong AAR. Đây là CA DUY NHẤT được phép -dontwarn ở repo này
+# (CI run 35821096343: `Missing class java.awt.{Component,GraphicsEnvironment,HeadlessException,
+# Window}` — tất cả đều từ Native$AWT, không phải từ code của app). KHÔNG thêm -dontwarn khác.
+-dontwarn java.awt.**
+
 # ── vosk-android 0.3.75 (AAR chính chủ, package org.vosk — đã xác minh bằng
 #    import thật trong VoskChannelBridge.kt: LibVosk/LogLevel/Model/Recognizer,
 #    KHÔNG phải org.kaldi của bản AAR cũ) ────────────────────────────────────
