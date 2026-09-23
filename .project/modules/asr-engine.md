@@ -48,7 +48,7 @@ Vì sao khác nhau: xem `pubspec.yaml` mục `assets:` và `lib/audio/asr/README
 
 ## Ràng buộc không được vi phạm
 
-- Chiều thu **100% offline** — không có đường cloud ASR (chỉ Post-Review P5 được phép, và chỉ khi có Wi-Fi).
+- Chiều thu **100% offline** — không có đường cloud ASR. (P5 **cố ý bỏ** bước cloud ASR của Post-Review vì trái ràng buộc cứng #4 — audio hội thoại không rời máy; xem `.project/modules/coaching.md`. Đừng "sửa lại cho đúng prompt gốc" mà thêm đường upload audio.)
 - Transcript **không có nhãn người nói** (bắt buộc từ P1E trở đi).
 - Âm thanh chỉ được phát qua `SafeTtsOutput` (P1F) — không liên quan chiều thu nhưng nhắc để không quên.
 - **KHÔNG free model native trong lúc còn lệnh native đang chạy** (review P4 tìm ra ở `WhisperChunkEngine`, đã

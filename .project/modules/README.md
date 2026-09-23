@@ -26,7 +26,7 @@ thái → việc còn thiếu → cảnh báo khi sửa.**
 | [Suggestion engine](suggestion-engine.md) | `lib/suggestion/*` | 🟡 **code xong (P2)** + Offline Nudge Cache (P3); chưa test máy thật (K39 — cần Groq API key, có nút nhập key từ P3) |
 | [Trigger + output mode](trigger-and-output.md) | `lib/trigger/*`, `lib/ui/floating_button.dart`, `lib/audio/{output_mode_selector,nudge_delivery}.dart` | 🟡 **code xong (P3)**; 49 test mới; chưa test máy thật (K41/K42), volume key/nút BT/thông báo còn nợ (K43) |
 | [Pipeline integration (P4)](pipeline-integration.md) | `lib/services/conversation_session_controller.dart` | 🟡 **code xong (P4)** — orchestrator + half-duplex, 25 test mới (236/236 pass); **chưa verify máy thật** (K46). Phát hiện lỗi native K45 |
-| [Coaching (P5)](coaching.md) | `lib/coaching/*`, `lib/ui/{pre_brief,post_review,stats}_screen.dart` | 🟡 **code xong (P5)** — Pre-Brief + Session Summary + Post-Review + Training Level, 66 test mới (**302/302 pass**); **0/5 mục DoD tick** vì cần máy thật + API key Groq (K48). Bước cloud ASR của prompt **cố ý bỏ** (mâu thuẫn ràng buộc #4) |
+| [Coaching (P5)](coaching.md) | `lib/coaching/*`, `lib/ui/{pre_brief,post_review,stats}_screen.dart` | 🟡 **code xong (P5)** — Pre-Brief + Session Summary + Post-Review + Training Level, 66 test mới (**302/302 pass**; commit `4e25b74`, CI xanh); **0/5 mục DoD tick** vì cần máy thật + API key Groq (K48). Bước cloud ASR của prompt **cố ý bỏ** (mâu thuẫn ràng buộc #4) |
 | Core (hằng số + logging) | `lib/core/constants.dart`, `app_logger.dart` | ✅ xong cho phạm vi hiện tại — không cần file riêng |
 
 ## 3. Module SẢN PHẨM — CHƯA có code (kế hoạch)
