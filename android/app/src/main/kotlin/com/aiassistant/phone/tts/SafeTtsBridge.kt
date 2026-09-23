@@ -385,21 +385,20 @@ class SafeTtsEngine(
                 playSynthesized(gen)
             }
 
-            override fun onError(utteranceId: String?) {
-                Log.e(TAG, "TTS báo lỗi khi tổng hợp (utterance=$utteranceId)")
-                synthesizing = false
-                cleanTempOfGeneration(utteranceId)
-                onEvent("error", mapOf("message" to "TTS tổng hợp lỗi"))
-            }
+            override fun onError(utteranceId: String?) =
+                handleSynthesisFailure(utteranceId, errorCode = null)
 
-            override fun onError(utteranceId: String?, errorCode: Int) {
-                Log.e(TAG, "TTS báo lỗi khi tổng hợp (utterance=$utteranceId, code=$errorCode)")
-                synthesizing = false
-                cleanTempOfGeneration(utteranceId)
-                onEvent("error", mapOf("message" to "TTS tổng hợp lỗi (code=$errorCode)"))
-            }
+            override fun onError(utteranceId: String?, errorCode: Int) =
+                handleSynthesisFailure(utteranceId, errorCode = errorCode)
 
             override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                // Thế hệ CŨ bị dừng là **hệ quả mong đợi** của việc `speak()` mới gọi `engine.stop()`
+                // (xem `stopPlaybackInternal`), nên không được đụng vào cờ dùng chung: nếu đặt
+                // `synthesizing = false` ở đây thì `onDone` của thế hệ MỚI sẽ bị bỏ qua và câu mới
+                // **im lặng** (cùng họ K45 — nợ A54).
+                if (!isCurrentGeneration(utteranceId)) {
+                    return
+                }
                 Log.w(TAG, "TTS bị dừng giữa chừng (interrupted=$interrupted)")
                 synthesizing = false
             }
@@ -413,9 +412,45 @@ class SafeTtsEngine(
     private fun wavFor(gen: Int): File = File(File(appContext.cacheDir, "tts"), "tts_$gen.wav")
 
     /**
-     * Xoá file tạm của **thế hệ mà lỗi thuộc về** (suy từ `utteranceId`), không phải của thế hệ
-     * đang chạy. `onError` của thế hệ cũ có thể tới SAU khi `speak()` mới đã dựng file mới ⇒ xoá
-     * theo field dùng chung sẽ làm câu mới im lặng (nợ K45, bài học A54).
+     * Callback của TTS engine có thể tới **muộn**, sau khi `speak()` mới đã chạy. Chỉ được để chúng
+     * tác động lên state DÙNG CHUNG khi thuộc **thế hệ đang chạy**; nếu không:
+     *  - (a) `synthesizing = false` của thế hệ cũ làm `onDone` của câu MỚI bị bỏ qua ⇒ **câu mới im
+     *    lặng** — đúng triệu chứng K45, ở một call-site thứ ba;
+     *  - (b) `onEvent("error")` của thế hệ cũ báo về Dart ⇒ `SafeTtsOutput` gọi `_setSpeaking(false)`
+     *    ⇒ **mở lại cửa ASR trong lúc TTS đang đọc** (vi phạm half-duplex, DoD 2 của P4) kèm thông
+     *    báo "Lỗi đọc TTS" sai.
+     * `utteranceId` không đọc được (`-1`) thì coi như thuộc thế hệ hiện tại (hướng an toàn).
+     */
+    private fun isCurrentGeneration(utteranceId: String?): Boolean {
+        val gen = generationFromId(utteranceId)
+        val current = generation.get()
+        if (gen < 0 || gen == current) {
+            return true
+        }
+        Log.w(TAG, "bỏ qua callback của thế hệ CŨ (gen=$gen, hiện tại=$current)")
+        return false
+    }
+
+    /**
+     * Lỗi tổng hợp: **luôn** dọn file của thế hệ bị lỗi, nhưng **chỉ** thế hệ đang chạy mới được đổi
+     * cờ trạng thái và báo `error` về Dart (xem [isCurrentGeneration] để biết vì sao).
+     */
+    private fun handleSynthesisFailure(utteranceId: String?, errorCode: Int?) {
+        val isCurrent = isCurrentGeneration(utteranceId)
+        cleanTempOfGeneration(utteranceId)
+        if (!isCurrent) {
+            return
+        }
+        synthesizing = false
+        val suffix = if (errorCode != null) " (code=$errorCode)" else ""
+        Log.e(TAG, "TTS báo lỗi khi tổng hợp (utterance=$utteranceId$suffix)")
+        onEvent("error", mapOf("message" to "TTS tổng hợp lỗi$suffix"))
+    }
+
+    /**
+     * Xoá file tạm của **thế hệ mà callback thuộc về** (suy từ `utteranceId`), không phải của thế hệ
+     * đang chạy. Callback của thế hệ cũ có thể tới SAU khi `speak()` mới đã dựng file mới ⇒ xoá theo
+     * field dùng chung sẽ làm câu mới im lặng (nợ K45, bài học A54).
      */
     private fun cleanTempOfGeneration(utteranceId: String?) {
         val gen = generationFromId(utteranceId)
@@ -617,9 +652,13 @@ class SafeTtsEngine(
      * ghi `tempWav` sang file của thế hệ MỚI trong lúc thread của lần chạy cũ còn đang thoát ra ⇒
      * lần cũ xoá mất file của câu mới và câu mới **im lặng** (nợ K45, bài học A54). Field chỉ bị
      * null khi nó **vẫn đang trỏ vào đúng file** mà lần chạy này sở hữu.
+     *
+     * So sánh bằng `==` (so **đường dẫn**), KHÔNG phải `===`: các call-site (`playSynthesized`,
+     * `cleanTempOfGeneration`) dựng lại `File` từ số thế hệ nên đối tượng khác nhau nhưng cùng
+     * đường dẫn — dùng `===` sẽ bỏ sót và để field trỏ vào file đã xoá.
      */
     private fun cleanTemp(file: File? = tempWav) {
-        if (tempWav === file) {
+        if (file != null && tempWav == file) {
             tempWav = null
         }
         if (file != null && file.exists() && !file.delete()) {

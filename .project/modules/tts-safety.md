@@ -116,10 +116,18 @@ Với tai nghe có dây, log của test case 1 sẽ đi qua **`becomingNoisy`** 
     lấy `val wav = wavFor(gen)`, `finally` gọi `cleanTemp(wav)`; `cleanTemp(file)` **chỉ null field nếu
     field vẫn `===` file đó**; `onError` dùng `cleanTempOfGeneration(utteranceId)` (suy thế hệ từ
     `utteranceId` — lỗi của thế hệ cũ có thể tới sau khi đã có file mới).
-  - ⚠️ **Khi sửa module này:** bất kỳ tài nguyên nào gắn với một "lần chạy" (file WAV, track, request id)
-    **không được** tra cứu gián tiếp qua state dùng chung; cleanup phải xoá **đúng đối tượng mình sở hữu**.
-    Dấu hiệu để nghi ngờ ngay khi review: thấy `finally { cleanTemp() }` (cleanup chung) ở chỗ có thể đã có
-    lần chạy mới ghi vào cùng field — và phải rà **hết** call-site, không chỉ chỗ đang sửa (bài học A54).
+  - **Vá thêm 2 call-site cùng họ khi review lại** (không phải chỉ sửa 1 chỗ): callback `onError`/`onStop`
+    của TTS engine **cũng tới muộn được**, nên `synthesizing = false` của thế hệ CŨ làm `onDone` của câu
+    MỚI bị bỏ qua ⇒ câu mới vẫn im lặng; và `onEvent("error")` của thế hệ cũ báo về Dart ⇒
+    `SafeTtsOutput._setSpeaking(false)` ⇒ **mở lại cửa ASR trong lúc TTS đang đọc** (vi phạm half-duplex)
+    kèm thông báo "Lỗi đọc TTS" sai. Nay cả `onError`/`onStop` đều qua `isCurrentGeneration(utteranceId)`
+    trước khi chạm state dùng chung (file của thế hệ lỗi thì **vẫn** được dọn).
+  - ⚠️ **Khi sửa module này:** bất kỳ callback của engine (hoặc tài nguyên gắn với một "lần chạy": file WAV,
+    track, request id) **không được** chạm state dùng chung trước khi kiểm thế hệ, và **không được** tra cứu
+    tài nguyên của mình qua state dùng chung; cleanup phải xoá **đúng đối tượng mình sở hữu**.
+    Dấu hiệu để nghi ngờ ngay khi review: thấy `finally { cleanTemp() }` (cleanup chung) hoặc
+    `synthesizing = false` ở chỗ có thể đã có lần chạy mới ghi vào cùng state — và phải rà **hết** call-site,
+    không chỉ chỗ đang sửa (bài học A54).
   - ⚠️ Chưa xác nhận trên máy thật: phép thử là **giữ nút nổi 2 giây đúng lúc đang đọc nudge** ⇒ phải nghe
     thấy câu thoát hiểm, và log **không** được có `không có file WAV để phát` (xem `.plan/P4-result.md` bước 7).
 - **Nudge chữ hiện chỉ hiện trên màn hình chẩn đoán** (SnackBar + dòng `TTS`/`Gợi ý`); kênh hiển
