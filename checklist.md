@@ -408,12 +408,15 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [x] **Tối ưu N+1 (dự án cũ từ review P5.1):** `TranscriptDao.sessionIdsWithReport()` — 1 query `SELECT DISTINCT session_id`; `HistoryScreen._load` dùng (101 query → **2 query**); 4 fake DAO cập nhật; +2 test hợp đồng (bảng có báo cáo / bảng trống). **373/373 pass, analyze sạch**; spec `transcript-store` thêm Requirement "Truy vấn Lịch sử theo hợp đồng DAO" (18/18 validate).
 - [x] Đồng bộ: `openspec/specs/transcript-store/spec.md`, `features.md`, `next.md`, `faq.md`, `LESSONS_LEARNED.md` (A60/A61), `working.md`.
 - [x] Viết `result_20260923-*.txt` (kết quả buổi) + `handoff_20260923-*.md` (tóm tắt phiên).
-- [x] **Tách commit P2.1/P5.1/P5.2/P5.3 + docs, push để CI build APK** (user ra lệnh trực tiếp).
+- [x] **Tách commit P2.1/P5.1/P5.2/P5.3 + docs, push để CI build APK** (user ra lệnh trực tiếp). — **5 commit tới `9259082`, `main` == `origin/main` (đã push).**
+- [x] **`.project/openspec.md` đã đồng bộ (2026-09-23):** (a) **thêm 4 hàng** `P2.1`/`P5.1`/`P5.2`/`P5.3` vào bảng phase (trước dừng ở P5→P6); (b) **`K50` gạch bỏ tiêu đề cũ + ghi rõ đã thu hẹp ở P5.1** — đã persist báo cáo (`post_review_reports`); (c) **hàng `P7` từ `⬜` → `🟡 phần tĩnh xong`** (khớp `next.md` + K51 trong chính file). Header "sau P5" → "sau P5.3".
+- [x] **Bổ sung báo cáo còn thiếu `.plan/P5_3-result.md`** — rà `.plan/`: 18/19 prompt phase có file kết quả; **chỉ thiếu `P6-result.md`, đúng thiết kế** (P6 tuỳ chọn, cần dùng thực địa ≥ 2 tuần, cố ý bỏ để sang P7). Số liệu chạy lại tươi: **373/373 test**, analyze sạch, `floating_button.dart` **0 dòng bị đụng**, 15 dòng chẩn đoán giữ đủ (prompt ghi "13" là ước lượng). Đồng bộ luôn `next.md` (bảng 13e + mục "Việc sắp tới" đã đánh dấu việc commit/push là xong).
 
 ### Chưa làm / cần hỏi lại (cập nhật buổi này)
 
 - [ ] ⚠ **Chưa verify trên máy thật** các phần P2.1/P5.1/P5.2/P5.3 (migration DB có sẵn, đổi tên phiên, retention, cấu hình LLM endpoint, nav 4 tab) — gộp K51, cần APK mới từ CI.
 - [ ] **K50 nay thu hẹp:** Post-Review **đã** persist (P5.1) — nợ còn lại chỉ là "xem lại báo cáo từ Lịch sử trên máy thật".
 - [ ] Hỏi lại: có giữ `human.md`/`TESTING.md` local-only (không commit) như hiện tại không? (hiện 2 file này ở ngoài git theo `.gitignore` custom).
+- [ ] Nhỏ, chờ lệnh: mục **`.project/openspec.md` §4 "Todo ngay tiếp theo"** liệt kê phase cần test máy thật nhưng **chưa có K51 + P2.1/P5.1/P5.2/P5.3** (nên thêm vào danh mục buổi test gộp).
 
 ## Cần làm (thứ tự đề xuất — cũ, để tham chiếu)
