@@ -25,6 +25,18 @@ class TranscriptSession {
       'last=${lastActivityAt.toIso8601String()})';
 }
 
+/// Một mốc Push đã ghi (P5: thống kê tuần — "số lần Push/buổi").
+///
+/// Trả kèm `sessionId` thay vì chỉ mốc thời gian vì caller cần **cả hai** phép đếm: Push theo buổi
+/// (mẫu số là phiên) và Push theo ngày (xu hướng tuần). Trả dữ liệu thô rồi gộp trong Dart rẻ hơn và
+/// ít sai hơn hai câu SQL gần giống nhau.
+class TranscriptPush {
+  const TranscriptPush({required this.sessionId, required this.at});
+
+  final int sessionId;
+  final DateTime at;
+}
+
 /// Truy cập dữ liệu transcript — **interface**, để `TranscriptStore` test được mà không cần SQLite
 /// thật (`sqflite` cần platform channel; test chỉ cần một bản giả trong bộ nhớ). Cùng cách đã dùng
 /// cho `ConfigStore` ở P1D.
@@ -51,6 +63,16 @@ abstract class TranscriptDao {
   /// Xoá **mọi** phiên (kèm dòng transcript + mốc Push của chúng) có hoạt động cuối trước
   /// [cutoff]. Trả về số phiên đã xoá.
   Future<int> deleteOlderThan(DateTime cutoff);
+
+  /// Các phiên có **hoạt động cuối** kể từ [since] (P5: thống kê tuần).
+  ///
+  /// Dùng `last_activity_at_ms` chứ không phải `started_at_ms`: một buổi bắt đầu 23:50 và kéo sang
+  /// 00:10 vẫn phải được tính cho ngày nó *diễn ra phần lớn*, và đây cũng là cột mà hạn 7 ngày dùng
+  /// ⇒ hai chỗ nhìn cùng một định nghĩa "phiên còn sống".
+  Future<List<TranscriptSession>> sessionsSince(DateTime since);
+
+  /// Mọi mốc Push kể từ [since], sắp xếp tăng dần theo thời gian.
+  Future<List<TranscriptPush>> pushesSince(DateTime since);
 }
 
 /// Bản thật: SQLite (`sqflite`) — kho đã chọn từ P0.5 và đã được mở ở bootstrap.
@@ -190,6 +212,38 @@ class SqliteTranscriptDao implements TranscriptDao {
       );
       return ids.length;
     });
+  }
+
+  @override
+  Future<List<TranscriptSession>> sessionsSince(DateTime since) async {
+    final Database db = await AppDatabase.instance();
+    final List<Map<String, Object?>> rows = await db.query(
+      'transcript_sessions',
+      where: 'last_activity_at_ms >= ?',
+      whereArgs: <Object?>[since.millisecondsSinceEpoch],
+      orderBy: 'last_activity_at_ms ASC',
+    );
+    return rows.map(_sessionFromRow).toList();
+  }
+
+  @override
+  Future<List<TranscriptPush>> pushesSince(DateTime since) async {
+    final Database db = await AppDatabase.instance();
+    final List<Map<String, Object?>> rows = await db.query(
+      'transcript_pushes',
+      columns: <String>['session_id', 'timestamp_ms'],
+      where: 'timestamp_ms >= ?',
+      whereArgs: <Object?>[since.millisecondsSinceEpoch],
+      orderBy: 'timestamp_ms ASC',
+    );
+    return rows
+        .map(
+          (Map<String, Object?> row) => TranscriptPush(
+            sessionId: row['session_id']! as int,
+            at: DateTime.fromMillisecondsSinceEpoch(row['timestamp_ms']! as int),
+          ),
+        )
+        .toList();
   }
 
   static TranscriptSession _sessionFromRow(Map<String, Object?> row) {

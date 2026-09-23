@@ -1,10 +1,11 @@
 # next.md — Roadmap & việc sắp tới
 
-Cập nhật: 2026-09-23 (+07). Nguồn: `.plan/production_roadmap.md`, `.plan/P4-result.md`.
+Cập nhật: 2026-09-23 (+07). Nguồn: `.plan/production_roadmap.md`, `.plan/P4-result.md`, `.plan/P5-result.md`.
 
 ## Đang ở đâu
 
-- **Phase hiện tại: P4 — Full Pipeline Integration + half-duplex, code xong PHẦN KHÔNG PHỤ THUỘC MÁY (236/236 test, analyze sạch), đã commit `00e16e0` + push.** Precondition của P4 **không đạt** (9/10 phase trong chuỗi P1A→P3 chưa pass DoD riêng); user chọn **waive có ghi rủi ro** + hoãn vòng test máy thật. Đã có orchestrator duy nhất (`lib/services/conversation_session_controller.dart`) thi hành half-duplex thật + phục hồi lỗi từng module; UI không còn tự nối module. **Phát hiện lỗi native mới (K45)**: phát câu mới khi câu trước đang đọc ⇒ câu mới im lặng (ảnh hưởng Emergency Phrase) — ✅ **đã sửa ở tầng code theo yêu cầu user** (`wavFor(gen)` + `cleanTemp(file)` + `onError` suy thế hệ; xem A54); còn chờ xác nhận **hành vi** trên máy thật. **Review lại bản sửa này** còn tìm thêm **2 lỗi cùng họ** (callback của thế hệ cũ đụng state dùng chung ⇒ câu mới im lặng; và `error` của thế hệ cũ ⇒ Dart mở lại cửa ASR giữa lúc đang đọc) — đã sửa (`995c675`, CI xanh). **Rà tiếp ASR/capture** còn tìm thêm **1 lỗi CRASH TIẾN TRÌNH** (dừng nghe đúng lúc Whisper đang transcribe ⇒ free model native khi đang dùng + `RejectedExecutionException` từ `finally`) + 2 lỗi cùng họ — đã sửa, **chưa commit** (vùng audio, chờ user xác nhận) — nợ verify **K47**.
+- **Phase hiện tại: P5 — Pre-Brief + Session Summary + Post-Review + Training Level, code xong PHẦN KHÔNG PHỤ THUỘC MÁY (302/302 test, analyze sạch), CHƯA commit.** Precondition P5 **không đạt** (chưa có phiên test thật nào + `adb devices` rỗng) ⇒ user **waive có ghi rủi ro**. **1 mâu thuẫn tài liệu đã hỏi & chốt:** bước *cloud ASR* của Post-Review **không được làm** (trái ràng buộc cứng #4 — audio hội thoại không rời máy; app cố ý không ghi audio) ⇒ Post-Review chỉ gửi **text local** lên LLM, DoD-3 "không áp dụng có lý do". Đã có: Pre-Brief (màn hình + nháp trong `meta` + đi vào `{pre_brief}` thật), tóm tắt phiên định kỳ (`{summary}` thật), Post-Review 3 mục, Training Level thủ công (5 cấp, 2 cổng trong `SuggestionPolicy`, **Emergency không bị chặn**), số liệu 7 ngày. **3 lỗi High tự tìm khi review đã sửa** (thử lại dồn dập sau lỗi; nhịp tóm tắt bị trần 20 của `SessionMemory` chặn; kết quả tóm tắt bay về sau `reset()` ⇒ cần **token thế hệ**). **0/5 mục DoD tick** (cần máy + API key Groq) — nợ **K48/K49/K50**. Xem `.plan/P5-result.md`.
+- *(Lịch sử gần)* **P4 — Full Pipeline Integration + half-duplex, code xong PHẦN KHÔNG PHỤ THUỘC MÁY (236/236 test, analyze sạch), đã commit `00e16e0` + push.** Precondition của P4 **không đạt** (9/10 phase trong chuỗi P1A→P3 chưa pass DoD riêng); user chọn **waive có ghi rủi ro** + hoãn vòng test máy thật. Đã có orchestrator duy nhất (`lib/services/conversation_session_controller.dart`) thi hành half-duplex thật + phục hồi lỗi từng module; UI không còn tự nối module. **Phát hiện lỗi native mới (K45)**: phát câu mới khi câu trước đang đọc ⇒ câu mới im lặng (ảnh hưởng Emergency Phrase) — ✅ **đã sửa ở tầng code theo yêu cầu user** (`wavFor(gen)` + `cleanTemp(file)` + `onError` suy thế hệ; xem A54); còn chờ xác nhận **hành vi** trên máy thật. **Review lại bản sửa này** còn tìm thêm **2 lỗi cùng họ** (callback của thế hệ cũ đụng state dùng chung ⇒ câu mới im lặng; và `error` của thế hệ cũ ⇒ Dart mở lại cửa ASR giữa lúc đang đọc) — đã sửa (`995c675`, CI xanh). **Rà tiếp ASR/capture** còn tìm thêm **1 lỗi CRASH TIẾN TRÌNH** (dừng nghe đúng lúc Whisper đang transcribe ⇒ free model native khi đang dùng + `RejectedExecutionException` từ `finally`) + 2 lỗi cùng họ — đã sửa, **chưa commit** (vùng audio, chờ user xác nhận) — nợ verify **K47**.
 - *(Lịch sử gần)* **P3 — Trigger + Output Mode + Offline Nudge Cache, code xong (211/211 test), CHƯA commit.** P1C–P1G + P2 + P3 đã code xong; cả chuỗi còn nợ vòng xác minh trên máy thật (K34 P1F, K39 P2, K41/K42 P3; K27 P1E đã xong). Buổi test P1F 2026-09-22 đã xác nhận đường phát TTS đầu-cuối trên máy thật (user nghe rõ) + phát hiện mất tai nghe; nên gộp các lần test máy thật còn lại vào một lượt (P1F rút-mid/TC2/TC3 + P1G emergency + P2 nudge + P3 gesture/3 chế độ/cache offline/tốc độ đọc).
 - Nguyên tắc: đi tuần tự, không nhảy cóc; mỗi phase phải tự kiểm Precondition và tự đối chiếu Definition of Done **có bằng chứng** trước khi báo xong.
 
@@ -24,7 +25,7 @@ Cập nhật: 2026-09-23 (+07). Nguồn: `.plan/production_roadmap.md`, `.plan/P
 | 10 | **P2** Suggestion Engine (LLM + Policy) | 🟡 **code xong** (`lib/suggestion/`, 29 test mới — 161/161 pass; có thêm 3 lỗi High tự tìm khi review, đã sửa); chưa test máy thật | Groq `llama-3.1-8b-instant` (chỉ gửi TEXT), policy chặn cứng `userSpeaking` + debounce 1s, prompt khung nguyên văn, anti-repetition 2 phút, `push()` không bao giờ ném. Nợ **K39** (5 mục DoD cần máy thật + Groq API key trong SecureStore) + **K40** (Offline Nudge Cache — P3). Xem `.plan/P2-result.md`. |
 | 11 | **P3** Trigger Abstraction + Output Modes + Offline Nudge Cache | 🟡 **code xong** (`lib/trigger/`, `lib/ui/floating_button.dart`, 2 file audio, cache asset — 50 test mới: 211/211 pass, analyze sạch); chưa test máy thật | Trigger = **một hàm duy nhất** `TriggerManager.onSuggestRequested`; nút nổi tap=Push / giữ **đúng 2s**=Emergency; 3 chế độ output (Ear tự hạ xuống chữ khi thiếu tai nghe) + tốc độ đọc 0.9-1.2x; Offline Cache 72 câu (chỉ fallback khi LLM không dùng được). Nợ **K41** (tốc độ đọc native), **K42** (máy thật), **K43** (volume key/nút BT/thông báo), **K44** (cache không theo chủ đề). K38/K40 **đóng**. Xem `.plan/P3-result.md`. |
 | 12 | **P4** Full Pipeline Integration (half-duplex) | 🟡 **code xong (phần không phụ thuộc máy)** — 236/236 test, analyze sạch | Orchestrator `ConversationSessionController` (half-duplex thật, chốt chống chồng tiếng, phục hồi từng module, số liệu DoD hiện trên màn hình chẩn đoán). Precondition không đạt → user waive. Nợ **K45** (lỗi native TTS im lặng) + **K46** (5 mục DoD máy thật). K35 (half-duplex) **đóng**. Xem `.plan/P4-result.md` |
-| 13 | **P5** Pre-Brief + Post-Review + Coaching + Training Level | ⬜ | |
+| 13 | **P5** Pre-Brief + Post-Review + Coaching + Training Level | 🟡 **code xong (phần không phụ thuộc máy)** — 302/302 test, analyze sạch | `lib/coaching/` + `lib/ui/{pre_brief,post_review,stats}_screen.dart` + 2 cổng Training Level trong `SuggestionPolicy`; Precondition không đạt → user waive; **bước cloud ASR của prompt cố ý bỏ** (mâu thuẫn ràng buộc #4 — đã hỏi user). Nợ **K48** (0/5 mục DoD máy thật), **K49** (luật Level 2/3 là heuristic), **K50** (báo cáo không persist). Xem `.plan/P5-result.md` |
 | 14 | **P6** Semi-auto Mode (tuỳ chọn) | ⬜ | Cần dùng thực địa ≥ 2 tuần. |
 | 15 | **P7** Production Hardening & Release | ⬜ | |
 
@@ -33,7 +34,7 @@ Tổng ước tính tới lúc dùng được (bỏ P6): **~9–11 tuần**.
 ## Đã hoàn thành
 
 - Không có phase nào **hoàn thành trọn vẹn** (mọi phase đều thiếu vòng xác minh trên máy thật).
-- Code xong: P1A, P1B, P1C, P1D, P1E, P1F, P1G, P2, P3, **P4 (phần không phụ thuộc máy)**; P0/P0.5 xong phần không cần thiết bị.
+- Code xong: P1A, P1B, P1C, P1D, P1E, P1F, P1G, P2, P3, **P4 (phần không phụ thuộc máy)**, **P5 (phần không phụ thuộc máy)**; P0/P0.5 xong phần không cần thiết bị.
 - Xong **phần chuẩn bị của P0** (không cần thiết bị): model PhoWhisper GGML tiny/base (f16 + q5_0), model Vosk small + lớn, 5 tool tái sử dụng được cho P1C/P1D, 5 file số liệu thô, code app spike 1129 dòng (analyze/test/JNI-syntax đều sạch), báo cáo `.plan/P0-result.md`.
 
 ## Việc sắp tới (theo thứ tự)
@@ -54,6 +55,18 @@ Tổng ước tính tới lúc dùng được (bỏ P6): **~9–11 tuần**.
 
 ### Buổi test máy thật sắp tới (gộp nhiều nợ vào MỘT lượt — cần APK mới + tai nghe, ~45′ + 30′ phiên P4)
 
+> **P5 (K48) thêm vào lượt test này — dùng CHÍNH buổi ≥ 30 phút ở dưới, không cần buổi riêng:**
+>   - **Pre-Brief (DoD-1):** nhập Pre-Brief (kiêng kỵ "chuyện lương") trước khi bật → nudge không rơi vào
+>     chuyện lương; đổi kiêng kỵ sang "chuyện gia đình" ⇒ nudge đổi theo. Dòng `Coaching (P5)` phải ghi
+>     `Pre-Brief: có`.
+>   - **Session summary:** sau ≥ 4 lần Push, dòng `Coaching (P5)` phải hiện `tóm tắt 1 lần (mới nhất HH:MM)`;
+>     nếu không, phần trong ngoặc nói lý do (mất mạng/chưa có key).
+>   - **Training Level:** chọn `Training` ⇒ Push bị chặn với lý do `level training`, nhưng giữ nút nổi 2s
+>     **vẫn nghe có câu thoát hiểm**; chọn `Minimal` ⇒ Push bị chặn khi vừa có người nói, cho qua sau ~8s.
+>   - **Post-Review:** bấm "Kết thúc buổi + nhận xét" ⇒ phải có **đúng 3 mục**; mở "Xem chi tiết" thấy
+>     transcript; dòng `Coaching (P5)` ghi `nhận xét 1 lần`.
+>   - **Số liệu 7 ngày:** khớp số buổi/Push thật của ngày hôm đó; **không** có câu gợi ý đổi cấp nào.
+>
 > **P4 (K46) thêm vào giáo trình này — quan trọng nhất vì cần phiên THẬT ≥ 30 phút:**
 > 0. Bật lắng nghe → nói chuyện thật (2 người hoặc roleplay) **liên tục ≥ 30 phút**, nhiều lần bấm
 >    Push ở các thời điểm khác nhau (đang nói / im lặng / **đúng lúc TTS đang đọc**).

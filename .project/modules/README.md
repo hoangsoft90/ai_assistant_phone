@@ -26,6 +26,7 @@ thái → việc còn thiếu → cảnh báo khi sửa.**
 | [Suggestion engine](suggestion-engine.md) | `lib/suggestion/*` | 🟡 **code xong (P2)** + Offline Nudge Cache (P3); chưa test máy thật (K39 — cần Groq API key, có nút nhập key từ P3) |
 | [Trigger + output mode](trigger-and-output.md) | `lib/trigger/*`, `lib/ui/floating_button.dart`, `lib/audio/{output_mode_selector,nudge_delivery}.dart` | 🟡 **code xong (P3)**; 49 test mới; chưa test máy thật (K41/K42), volume key/nút BT/thông báo còn nợ (K43) |
 | [Pipeline integration (P4)](pipeline-integration.md) | `lib/services/conversation_session_controller.dart` | 🟡 **code xong (P4)** — orchestrator + half-duplex, 25 test mới (236/236 pass); **chưa verify máy thật** (K46). Phát hiện lỗi native K45 |
+| [Coaching (P5)](coaching.md) | `lib/coaching/*`, `lib/ui/{pre_brief,post_review,stats}_screen.dart` | 🟡 **code xong (P5)** — Pre-Brief + Session Summary + Post-Review + Training Level, 66 test mới (**302/302 pass**); **0/5 mục DoD tick** vì cần máy thật + API key Groq (K48). Bước cloud ASR của prompt **cố ý bỏ** (mâu thuẫn ràng buộc #4) |
 | Core (hằng số + logging) | `lib/core/constants.dart`, `app_logger.dart` | ✅ xong cho phạm vi hiện tại — không cần file riêng |
 
 ## 3. Module SẢN PHẨM — CHƯA có code (kế hoạch)
@@ -47,7 +48,9 @@ phase tương ứng bắt đầu (và ghi vào bảng mục 2 lúc đó).
 > `suggestion-engine` (P2) đã có code — xem bảng ở mục 2 (file: `suggestion-engine.md`).
 > `trigger-modes` (P3) đã có code — xem bảng ở mục 2 (file: `trigger-and-output.md`).
 > `pipeline-halfduplex` (P4) đã có code — xem bảng ở mục 2 (file: `pipeline-integration.md`).
-| `prebrief-postreview` | P5 | `lib/ui/`, `lib/suggestion/` | Chuẩn bị trước cuộc nói + xem lại sau |
+> `prebrief-postreview` (P5) đã có code — xem bảng ở mục 2 (file: `coaching.md`); thực tế nằm ở
+> `lib/coaching/` (không phải `lib/suggestion/` như dự kiến ban đầu), vì đây là lớp "trước/sau buổi"
+> dùng LLM chứ không phải luật gợi ý realtime.
 | `semi-auto-mode` | P6 | `lib/trigger/` | Chế độ bán tự động (tuỳ chọn) |
 | `hardening-release` | P7 | toàn dự án | Chống kill service, pin, release build |
 

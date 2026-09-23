@@ -1,6 +1,6 @@
 # openspec.md — Tiến độ, bug, todo (góc nhìn OpenSpec)
 
-Cập nhật: 2026-09-23 (+07, sau P4).
+Cập nhật: 2026-09-23 (+07, sau P5).
 
 > **Nguồn sự thật về nợ/DoD là `checklist.md`** — bảng ở mục 3 đây chỉ giữ các mục cũ + mục đang mở
 > mức cao; K17–K26 đã đóng và một số dòng cũ đã được dọn.
@@ -43,8 +43,7 @@ dự kiến là P1A/P1B.
 | P2 | Suggestion Engine (LLM + Policy) | 🟡 **code xong** (`lib/suggestion/`, 29 test mới — 161/161 pass, analyze sạch); **prompt khung nguyên văn** đã đối chiếu từng dòng với `.plan/prompt_P2.md`; review lần 2 tìm + sửa **3 lỗi High** (bài học A50); chưa test máy thật — nợ **K39**, **K40** |
 | P3 | Trigger Abstraction + Output Modes + Offline Nudge Cache | 🟡 **code xong** (`lib/trigger/`, `lib/ui/floating_button.dart`, `output_mode_selector.dart`, `nudge_delivery.dart`, asset cache — 50 test mới: **211/211 pass**, analyze sạch); 6 lỗi + 2 thứ thừa (Ponytail) tự tìm khi review đã xử lý; chưa test máy thật — nợ **K41/K42/K43/K44**, đóng **K38/K40** |
 | P4 | Full Pipeline Integration (half-duplex) | 🟡 **code xong phần không phụ thuộc máy** (`lib/services/conversation_session_controller.dart` + `SafeTtsOutput.speakingChanges` — 25 test mới: **236/236 pass**, analyze sạch); Precondition **không đạt**, user waive có ghi rủi ro; phát hiện + **sửa** lỗi native **K45** (3–4 call-site); rà tiếp **5 file native ASR/capture** ⇒ sửa 1 lỗi **crash tiến trình** (Whisper `close()` free model khi đang transcribe + `RejectedExecutionException` từ `finally`) + 2 lỗi cùng họ (nhả recorder theo field dùng chung; `stop()` bỏ join); chưa test máy thật — nợ **K46**, **K47**, đóng **K35** |
-| P4 | Full Pipeline Integration (half-duplex) | ⬜ |
-| P5 | Pre-Brief + Post-Review + Coaching + Training Level | ⬜ |
+| P5 | Pre-Brief + Session Summary + Post-Review + Training Level | 🟡 **code xong phần không phụ thuộc máy** (`lib/coaching/*` + `lib/ui/{pre_brief,post_review,stats}_screen.dart` + 2 cổng Training Level trong `SuggestionPolicy` — 66 test mới: **302/302 pass**, analyze sạch); Precondition **không đạt**, user waive; **1 mâu thuẫn tài liệu đã hỏi & chốt**: bước *cloud ASR* của Post-Review **cố ý bỏ** (trái ràng buộc cứng #4 — audio hội thoại không rời máy) ⇒ chỉ gửi **text local**, DoD-3 không áp dụng; 3 lỗi High tự tìm khi review đã sửa; chưa test máy thật — nợ **K48**, **K49**, **K50** |
 | P6 | Semi-auto Mode (tuỳ chọn) | ⬜ — cần dùng thực địa ≥2 tuần |
 | P7 | Production Hardening & Release | ⬜ |
 
@@ -91,12 +90,15 @@ dự kiến là P1A/P1B.
 | **K47** | **Bản sửa review vòng 2 (native ASR/capture, P4) chưa verify trên máy**: (a) **dừng nghe đúng lúc Whisper đang transcribe** ⇒ không crash + lần nghe sau vẫn nhận transcript; (b) đổi engine ASR giữa lúc đang transcribe; (c) lỗi mic giữa lúc thu ⇒ vòng restart của P4 **thu lại được**; (d) `dispose` giữa lúc thu không crash. Lý do không kiểm được ở máy dev: không có Android SDK + **không có test harness cho Kotlin** | 🔴 cao (có ca crash tiến trình) | `.plan/P4-result.md` mục 6, `.project/modules/asr-engine.md`, `.project/modules/audio-capture.md` |
 | **K46** | **P4: 5/6 mục DoD chưa verify trên máy thật** — (a) phiên hội thoại thật ≥ 30 phút không crash; (b) half-duplex đúng (ASR không bắt nhầm giọng TTS — cần tai + `dumpsys audio` + số trên dòng `Phiên (P4)`); (c) đo pin/giờ + độ trễ Push trung bình; (d) rút tai nghe giữa phiên thật; (e) tắt mạng giữa phiên ⇒ phần còn lại vẫn chạy. Unit test đã khoá logic nhưng không thay được phiên thật | 🔴 cao | `.plan/P4-result.md` mục DoD |
 | **K44** | **Offline Nudge Cache không theo chủ đề hội thoại** — câu trong cache là câu chung (khi LLM không trả về thì ta không biết nội dung để chọn theo chủ đề). Nếu dùng thật thấy vô dụng thì chốt lại ở P5 | 🟡 thấp | `.plan/P3-result.md` |
+| **K48** | **P5: 0/5 mục DoD chưa verify trên máy thật** — (a) Pre-Brief thật sự ảnh hưởng nudge (đổi "chủ đề kiêng kỵ" ⇒ nudge không rơi vào chủ đề đó) — phụ thuộc **K39** (nudge thật từ Groq); (b) Post-Review sinh đúng 3 mục sau một buổi thật; (c) đổi Training Level ⇒ hành vi đổi tay được (Level 4 chặn Push nhưng **Emergency vẫn phát**; Level 2 chặn khi thiếu ngữ cảnh; Level 3 chỉ sau ~8s im lặng); (d) số liệu 7 ngày khớp dữ liệu thật; (e) dòng `Coaching (P5)` hiện `tóm tắt N lần` sau ≥ 4 nudge | 🔴 cao | `.plan/P5-result.md` mục 3 + §8 |
+| **K49** | **Luật Training Level 2/3 là heuristic tự thiết kế** ("ngữ cảnh rõ" = đã nhập Pre-Brief hoặc có transcript trong 30s; "thật sự kẹt" = im lặng ≥ 8s kể từ dòng transcript cuối). Prompt P5 cho phép agent tự thiết kế nhưng chưa có phiên thật để chỉnh ⇒ có thể chặn quá tay hoặc quá lỏng | 🟠 vừa | `.plan/P5-result.md` mục 6.2 |
+| **K50** | **Báo cáo Post-Review không persist** — đóng màn hình là mất (cố ý ở v1 để không phát sinh dữ liệu nhạy cảm mới; hạn 7 ngày của P1E nhờ vậy không phải mở rộng) | 🟢 thấp | `.plan/P5-result.md` mục 6.6 |
 
 ## 4. Todo ngay tiếp theo (thứ tự)
 
 1. **Tải APK debug mới nhất từ CI → cài máy thật → chạy 1 vòng protocol đo** cho **tất cả** phase
-   đang nợ: **P4 (K46 — cần phiên thật ≥30′, nên đây là lượt test quan trọng nhất)**, **P3 (K42/K41)**, **P2 (K39)**, **P1F (3 test case TTS, K34)**, P0 Task 2/3 (K2), P1E (`am kill` + đổi ngày 8 ngày), P1D (2 engine, 45′), P1B (ngưỡng VAD bằng giọng thật),
-   P1A/P0.5 (quyền, FGS, DB, `becomingNoisy`), P0 (A2DP/HFP). Đây là điểm chặn chất lượng của 6 phase.
+   đang nợ: **P5 (K48 — gộp vào cùng phiên: Pre-Brief/Training Level/Post-Review/số liệu)**, **P4 (K46 — cần phiên thật ≥30′, nên đây là lượt test quan trọng nhất)**, **P3 (K42/K41)**, **P2 (K39)**, **P1F (3 test case TTS, K34)**, P0 Task 2/3 (K2), P1E (`am kill` + đổi ngày 8 ngày), P1D (2 engine, 45′), P1B (ngưỡng VAD bằng giọng thật),
+   P1A/P0.5 (quyền, FGS, DB, `becomingNoisy`), P0 (A2DP/HFP). Đây là điểm chặn chất lượng của 7 phase.
    Giáo trình gộp một lượt ~45′ nằm ở `next.md` mục "Buổi test máy thật sắp tới".
    Làm **K37** (đòi xác nhận mỗi lần mở app) trước buổi test cho đỡ tốn thao tác tay.
 2. Vá ngưỡng/logic theo số liệu máy thật (VAD K15, engine mặc định K3/K18, Vosk K20/K21).

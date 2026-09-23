@@ -1,4 +1,9 @@
+import 'dart:async';
+
 import '../audio/vad/conversation_state_notifier.dart';
+import '../coaching/pre_brief.dart';
+import '../coaching/session_summary.dart';
+import '../coaching/training_level.dart';
 import '../core/app_logger.dart';
 import '../transcript/transcript_store.dart';
 import 'groq_llm_provider.dart';
@@ -28,13 +33,19 @@ class SuggestionService {
     TranscriptStore? transcript,
     OfflineNudgeCache? cache,
     DateTime Function()? now,
+    PreBriefStore? preBriefs,
+    SessionSummaryService? summaries,
+    TrainingLevelStore? levels,
   })  : _provider = provider ?? GroqLlmProvider(),
         _policy = policy ?? SuggestionPolicy(),
         _builder = builder ?? SuggestionContextBuilder(),
         _memory = memory ?? SessionMemory(),
         _transcript = transcript ?? TranscriptStore.instance(),
         _cache = cache ?? OfflineNudgeCache.instance(),
-        _now = now ?? DateTime.now;
+        _now = now ?? DateTime.now,
+        _preBriefs = preBriefs ?? PreBriefStore.instance(),
+        _summaries = summaries ?? SessionSummaryService(),
+        _levels = levels ?? TrainingLevelStore.instance();
 
   static const AppLogger _log = AppLogger('Suggestion');
 
@@ -46,8 +57,24 @@ class SuggestionService {
   final OfflineNudgeCache _cache;
   final DateTime Function() _now;
 
+  /// P5: Pre-Brief của phiên (thay `{pre_brief}` mock rỗng của P2) và bản tóm tắt phiên
+  /// (thay `{summary}`). Hai thứ này là **ngữ cảnh**, không phải luật — luật cấp độ nằm ở
+  /// [SuggestionPolicy], còn việc tóm tắt nằm ở [SessionSummaryService].
+  final PreBriefStore _preBriefs;
+  final SessionSummaryService _summaries;
+
+  /// P5: Training Level (mục 4.9) — nguồn duy nhất của luật "cấp này có được nudge realtime không".
+  final TrainingLevelStore _levels;
+
   DateTime? _lastAttemptAt;
   int _cacheFallbackCount = 0;
+
+  /// Số nudge đã ghi trong **phiên hiện tại** (đếm riêng, không lấy từ `_memory`).
+  ///
+  /// Vì sao không dùng `_memory.recentSuggestions.length`: bộ nhớ phiên có trần 20 bản ghi (chống phình
+  /// RAM) ⇒ sau nudge thứ 20 con số đó **đứng yên** và nhịp tóm tắt theo nudge không bao giờ đủ nữa
+  /// (chỉ còn nhịp theo thời gian). Đây là lỗi tôi tự tìm thấy khi review phần P5.
+  int _sessionNudgeCount = 0;
 
   /// Bộ nhớ phiên cho UI/test đọc (nudge đã hiển thị trong phiên).
   SessionMemory get memory => _memory;
@@ -62,12 +89,15 @@ class SuggestionService {
   /// `pushFromState()` bên dưới.
   Future<SuggestionResult> push({required bool isUserSpeaking}) async {
     final DateTime now = _now();
+    final TrainingLevel level = _levels.current;
 
-    // 1) Policy — chặn CỨNG trước khi build context (constraint P2).
+    // 1) Policy — chặn CỨNG trước khi build context (constraint P2). Từ P5 có thêm luật Training Level
+    //    (Level 4/5 ⇒ `NO_SUGGESTION` có chủ đích, mục 4.9).
     final PolicyDecision decision = _policy.canSuggest(
       isUserSpeaking: isUserSpeaking,
       lastAttemptAt: _lastAttemptAt,
       now: now,
+      level: level,
     );
     // Ghi nhận MỌI lần bấm (kể cả bị chặn) làm mốc debounce — double-tap phải bị chặn dù lần
     // trước đã bị chặn vì userSpeaking.
@@ -80,14 +110,38 @@ class SuggestionService {
     // 2) Build context từ transcript (P1E) + bộ nhớ phiên. Đọc transcript có thể NÉM (SQLite lỗi/
     // DB chưa mở) — bọc lại, vì hợp đồng của `push()` là KHÔNG BAO GIỜ ném.
     final SuggestionContext context;
+    final TranscriptWindow window;
     try {
-      final TranscriptWindow window = await _transcript.recentWindow(
-        window: _builder.recentWindow,
+      window = await _transcript.recentWindow(window: _builder.recentWindow);
+      context = _builder.build(
+        window: window,
+        memory: _memory,
+        now: now,
+        // P5: thay hai chỗ mock rỗng của P2 bằng dữ liệu thật — Pre-Brief người dùng vừa nhập và bản
+        // tóm tắt phiên do LLM cập nhật định kỳ.
+        preBrief: _preBriefs.current,
+        summary: _summaries.summary,
       );
-      context = _builder.build(window: window, memory: _memory, now: now);
     } catch (error, stackTrace) {
       _log.error('không đọc được transcript để dựng context', error, stackTrace);
       return SuggestionResult.noSuggestion(note: 'lỗi đọc transcript');
+    }
+
+    // 2b) Cổng thứ HAI theo Training Level (P5 mục 4.9) — cần transcript nên phải nằm sau bước dựng
+    //     context, nhưng vẫn TRƯỚC khi gọi LLM. Trả về `NO_SUGGESTION` có chủ đích: đây là quyết
+    //     định học tập của người dùng (Level 4/5 "không cứu realtime"), KHÔNG phải lỗi ⇒ cố ý KHÔNG
+    //     fallback sang Offline Nudge Cache (fallback ở đây là phá đúng cấp độ người dùng chọn).
+    final PolicyDecision contextDecision = _policy.canSuggestWithContext(
+      level: level,
+      hasPreBrief: _preBriefs.hasCurrent,
+      hasRecentTranscript: !window.isEmpty,
+      lastTranscriptAt:
+          window.segments.isEmpty ? null : window.segments.last.timestamp,
+      now: now,
+    );
+    if (!contextDecision.allowed) {
+      _log.info('Push bị chặn theo training level: ${contextDecision.reason}');
+      return SuggestionResult.noSuggestion(note: 'bị chặn: ${contextDecision.reason}');
     }
 
     // 3) Gọi LLM — retry đúng 1 lần khi JSON lỗi (constraint prompt P2 mục 5). Timeout/mất mạng
@@ -124,6 +178,8 @@ class SuggestionService {
 
     // 5) Ghi bộ nhớ phiên + trả về.
     _memory.record(result, at: now);
+    _sessionNudgeCount++;
+    _maybeRefreshSummary();
     // KHÔNG log nội dung nudge: đó là nội dung suy ra từ hội thoại (dữ liệu nhạy cảm — cùng loại
     // với transcript). Logcat chỉ ghi loại + trạng thái; nội dung đã hiện trên màn hình chẩn đoán.
     _log.info(
@@ -159,6 +215,8 @@ class SuggestionService {
       source: NudgeSource.cache,
       note: 'offline cache ($reason)',
     );
+    // KHÔNG đếm nudge cache vào nhịp tóm tắt: nhánh này nghĩa là **LLM vừa không dùng được**, nên gọi
+    // tóm tắt ngay sau đó chỉ tạo thêm một request chắc chắn hỏng (mỗi lần tốn cả timeout).
     _memory.record(result, at: now);
     _log.warn(
       'LLM không dùng được ⇒ nudge từ OFFLINE CACHE (${cached.type.apiName}) · '
@@ -188,9 +246,27 @@ class SuggestionService {
   Future<SuggestionResult> pushFromState() =>
       push(isUserSpeaking: ConversationStateNotifier.instance.isUserSpeaking);
 
-  /// Xoá bộ nhớ phiên (test / bắt đầu phiên mới).
+  /// Xoá bộ nhớ phiên (test / bắt đầu phiên mới) + bản tóm tắt của phiên cũ.
+  ///
+  /// ⚠️ KHÔNG xoá Pre-Brief: Pre-Brief được nhập **cho** phiên sắp bắt đầu, nên xoá nó ở đây sẽ làm
+  /// người dùng mất ngữ cảnh vừa gõ ngay khi bấm "Bật lắng nghe".
   void resetSession() {
     _memory.clear();
     _lastAttemptAt = null;
+    _sessionNudgeCount = 0;
+    _summaries.reset();
+  }
+
+  /// Nguồn ngữ cảnh cho UI (màn hình Pre-Brief + dòng chẩn đoán) — không mở thêm đường ghi nào khác.
+  PreBriefStore get preBriefs => _preBriefs;
+
+  SessionSummaryService get summaries => _summaries;
+
+  TrainingLevelStore get levels => _levels;
+
+  /// Gọi tóm tắt phiên nếu đã tới nhịp. **Cố ý không `await`**: tóm tắt là tính năng phụ, chờ nó chỉ
+  /// làm nudge tới muộn (DoD P4 đo độ trễ Push→tổng hợp). `maybeRefresh` tự nuốt mọi lỗi.
+  void _maybeRefreshSummary() {
+    unawaited(_summaries.maybeRefresh(nudgeCount: _sessionNudgeCount));
   }
 }

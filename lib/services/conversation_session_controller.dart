@@ -263,6 +263,19 @@ class ConversationSessionController {
       _active = true;
       _sessionStartedAt = _now();
       _resetSessionCounters();
+      // P5: bắt đầu phiên ⇒ xoá bộ nhớ gợi ý + bản tóm tắt của buổi trước. Nếu không xoá, `{summary}`
+      // của buổi cũ đi vào prompt buổi mới ⇒ LLM gợi ý lệch chủ đề, mà prompt vẫn hợp lệ nên rất khó
+      // lần ra. Pre-Brief thì CỐ Ý giữ: nó vừa được nhập cho chính phiên đang bắt đầu.
+      // (Cùng ngữ nghĩa "reset theo phiên" với `_resetSessionCounters` ở trên: bật lại trong cùng buổi
+      // nói cũng reset — bản tóm tắt sẽ tự dựng lại từ transcript của cả phiên sau vài nudge.)
+      //
+      // Bọc try/catch: đây là việc **dọn dẹp**, và `start()` có hợp đồng "một module con lỗi không được
+      // làm phiên không bật được" (P4 task 5). Xoá bộ nhớ gợi ý thất bại ⇒ chỉ ghi log, vẫn nghe tiếp.
+      try {
+        _trigger.suggestions.resetSession();
+      } catch (error) {
+        _log.warn('không xoá được bộ nhớ gợi ý của phiên trước: $error');
+      }
       _conversation.start();
       _syncPhase();
       await startAsr();

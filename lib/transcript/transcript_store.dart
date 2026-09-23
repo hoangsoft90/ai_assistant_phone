@@ -29,6 +29,35 @@ class TranscriptWindow {
       'TranscriptWindow(${segments.length} dòng, push=$lastPushMoment)';
 }
 
+/// Toàn bộ transcript của **phiên đang chạy** (P5) — khác [TranscriptWindow] (chỉ một cửa sổ 30s dùng
+/// cho prompt khung của P2).
+///
+/// Tách riêng kiểu trả về thay vì trả `String` trần vì hai caller (tóm tắt phiên, Post-Review) đều
+/// **phải báo được** cho người dùng khi nội dung bị cắt do trần ký tự gửi LLM — im lặng cắt sẽ khiến
+/// báo cáo "đã phân tích cả buổi" trong khi thực tế chỉ phân tích phần cuối.
+class SessionTranscript {
+  const SessionTranscript({
+    required this.text,
+    required this.segmentCount,
+    required this.truncated,
+  });
+
+  /// Text thô, mỗi dòng transcript một dòng, KHÔNG nhãn người nói (ràng buộc xuyên phase từ P1E).
+  final String text;
+
+  /// Tổng số dòng của phiên **trước** khi cắt (để đối chiếu với [truncated]).
+  final int segmentCount;
+
+  /// `true` nếu [text] đã bị cắt bớt (chỉ giữ phần cuối) do vượt trần ký tự.
+  final bool truncated;
+
+  bool get isEmpty => text.isEmpty;
+
+  @override
+  String toString() =>
+      'SessionTranscript($segmentCount dòng${truncated ? ', đã cắt' : ''} · ${text.length} ký tự)';
+}
+
 /// Rolling transcript của phiên hiện tại (P1E).
 ///
 /// Kiến trúc:
@@ -238,6 +267,37 @@ class TranscriptStore {
             .toList()
         : await _dao.segmentsSince(sessionId, cutoff);
     return TranscriptWindow(segments: segments, lastPushMoment: _lastPushMoment);
+  }
+
+  /// Toàn bộ transcript của phiên đang chạy (P5) — nguồn dữ liệu cho tóm tắt định kỳ và Post-Review.
+  ///
+  /// Đọc thẳng SQLite (không qua bộ nhớ rolling) vì cần cả phiên; vẫn đi qua đúng `_sessionId` hiện
+  /// tại nên không cần API DAO mới. Cắt từ **ĐẦU** khi vượt [maxChars]: phần gần đây là phần quyết
+  /// định cho cả gợi ý lẫn nhận xét cuối buổi (lý do chi tiết ở `CoachingConfig.transcriptCharLimit`).
+  Future<SessionTranscript> sessionTranscript({
+    int maxChars = CoachingConfig.transcriptCharLimit,
+  }) async {
+    await init();
+    final int sessionId = _sessionId!;
+    final List<TranscriptSegment> segments =
+        await _dao.segmentsSince(sessionId, DateTime.fromMillisecondsSinceEpoch(0));
+    final String full =
+        segments.map((TranscriptSegment segment) => segment.text).join('\n');
+    if (maxChars <= 0 || full.length <= maxChars) {
+      return SessionTranscript(
+        text: full,
+        segmentCount: segments.length,
+        truncated: false,
+      );
+    }
+    _log.info(
+      'transcript phiên #$sessionId dài ${full.length} ký tự ⇒ cắt còn $maxChars (giữ phần cuối)',
+    );
+    return SessionTranscript(
+      text: full.substring(full.length - maxChars),
+      segmentCount: segments.length,
+      truncated: true,
+    );
   }
 
   /// Hủy lắng nghe và chờ hết các lần ghi đang dở (gọi khi app/màn hình kết thúc).

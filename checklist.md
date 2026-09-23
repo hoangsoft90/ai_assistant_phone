@@ -343,6 +343,24 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [ ] ⚠ 3 lỗi trên đều ở **native** — phần này **không có test harness** ở máy dev (không Android SDK) ⇒ phép thử nằm trong buổi test máy: bước 7 (nghe câu thoát hiểm khi đang đọc nudge) + xem số `chặn N chunk khi đang phát` **không tụt về 0** giữa lúc đang đọc.
 - [ ] ⚠ **K45 chưa xác nhận hành vi trên máy thật**: CI đã biên dịch **XANH** (run `35808819851`, artifact `app-debug-apk`), nhưng vẫn phải nghe được câu thoát hiểm khi **giữ nút nổi 2 giây đúng lúc đang đọc nudge** và log không có `không có file WAV để phát` (bước 7 giáo trình test trong `.plan/P4-result.md`).
 
+### P5 — Pre-Brief + Session Summary + Post-Review + Training Level
+
+- [x] Tự kiểm Precondition của P5 → **KHÔNG ĐẠT** (chưa có phiên test thật nào; `adb devices` rỗng) ⇒ **dừng và hỏi** user; user chọn **waive có ghi rủi ro** + làm phần không phụ thuộc máy.
+- [x] **Phát hiện + hỏi mâu thuẫn tài liệu:** `prompt_P5.md` task 3.1 (gửi transcript lên **ASR cloud**) trái **ràng buộc cứng #4** ("ASR offline, audio hội thoại không được gửi lên cloud") và không có audio để gửi (app cố ý không ghi audio) ⇒ user chốt **chỉ dùng transcript local (text) → LLM**; không thêm `connectivity_plus`, DoD-3 **không áp dụng có lý do**.
+- [x] **Task 1 Pre-Brief:** `lib/coaching/pre_brief.dart` (6 trường + `ConversationStyle` + store: RAM theo phiên + **nháp** trong bảng `meta`) + `lib/ui/pre_brief_screen.dart`; đi vào prompt khung qua `{pre_brief}` thật (chủ đề kiêng kỵ ghi rõ `TRÁNH (...)`). **Không** schema mới/migration.
+- [x] **Task 2 Session Summary:** `lib/coaching/session_summary.dart` + `TranscriptStore.sessionTranscript()` (cả phiên, kèm `segmentCount`/`truncated`); nhịp **4 nudge HOẶC 5 phút**; gọi **không `await`** (không làm nudge tới muộn); lỗi ⇒ giữ bản cũ + `lastNote`; **không log nội dung**.
+- [x] **Task 3 Post-Review:** `lib/coaching/post_review_service.dart` + `lib/ui/post_review_screen.dart` — đúng **3 mục**, parse chịu code fence, mọi nhánh lỗi → `unavailable(note)` (không bao giờ ném), định dạng lạ ⇒ vẫn cho đọc **văn bản thô**, transcript chi tiết **ẩn** sau "Xem chi tiết"; nút "Kết thúc buổi" `stop()` trước rồi mới phân tích.
+- [x] **Task 4 Training Level:** `lib/coaching/training_level.dart` (5 cấp, ghi lỗi ⇒ KHÔNG đổi RAM) + **luật trong `SuggestionPolicy`** (2 cổng trước LLM: Level 4/5 ⇒ `NO_SUGGESTION` **có chủ đích**; Level 2 cần ngữ cảnh rõ; Level 3 chỉ khi im lặng ≥ 8s) — **không** fallback Offline Cache; **Emergency không bị chặn** (test riêng).
+- [x] **Thống kê 7 ngày:** `lib/coaching/weekly_stats.dart` + `lib/ui/stats_screen.dart` (số buổi, tổng Push, **Push/buổi**, bảng theo ngày, xu hướng tăng/giảm/không đổi) — **không** có logic tự đề xuất chuyển cấp; 2 truy vấn DAO mới (`sessionsSince`/`pushesSince`), **không** đổi schema.
+- [x] **3 lỗi High tự tìm khi review:** (H1) tóm tắt **thử lại mỗi nudge** khi LLM hỏng ⇒ ghi mốc lần **THỬ**; (H2) nhịp lấy số nudge từ `SessionMemory` (**trần 20**) ⇒ đứng yên sau nudge 20 ⇒ bộ đếm riêng trong `SuggestionService`; (H3) kết quả tóm tắt **bay về sau `reset()`** ⇒ phiên mới thừa hưởng ngữ cảnh buổi trước ⇒ **token thế hệ** (cùng họ K45/A54), test dùng `Completer`.
+- [x] 1 lỗi do tôi gây ra bị **smoke test bắt ngay**: dropdown cấp độ tràn ngang 47px ⇒ item chỉ hiện `label` + `behavior` xuống `helperText`.
+- [x] Nối vào P4: `ConversationSessionController.start()` reset bộ nhớ gợi ý + tóm tắt của phiên trước (giữ Pre-Brief), bọc `try/catch` để việc dọn dẹp không làm phiên không bật được (đúng hợp đồng task 5 của P4).
+- [x] Test: 5 file mới — **66 test** (`pre_brief` 11, `training_level` 16, `session_summary` 18, `post_review` 13, `weekly_stats` 8); `flutter analyze` **sạch**; **302/302 test pass**.
+- [x] Bằng chứng ranh giới: `onSuggestRequested` vẫn **1 nơi gọi**; `.speak(` vẫn 3 nơi hợp lệ; grep vùng P5 **không** có file/audio/upload; `git status` **không** file nào trong `lib/audio/` bị sửa; dead-code (`runCount`/`updatedAt` nay hiện ở dòng `Coaching (P5)`, `setCurrentForTest` đã xoá).
+- [ ] ⚠ **0/5 mục DoD chưa verify trên máy thật** (nợ **K48**) — giáo trình 7 bước ở `.plan/P5-result.md` §8 (đã gộp vào "Buổi test máy thật sắp tới" trong `next.md`).
+- [ ] ⚠ **K49**: luật Level 2/3 là heuristic tự thiết kế (ngữ cảnh rõ = có Pre-Brief/transcript; kẹt = im lặng ≥ 8s) — chỉnh sau phiên thật. **K50**: báo cáo Post-Review không persist.
+- [ ] **Chưa commit** — P5 chạm nhóm "ràng buộc cứng/limit" của vùng loại trừ Ponytail (cấp độ chặn nudge) ⇒ chờ user xác nhận (đã hỏi).
+
 ## Cần làm (thứ tự đề xuất)
 
 1. **Chốt đường build** — GitHub Actions (chờ repo) hoặc cài Android SDK/NDK tạm vào `/tmp` ở máy này.

@@ -198,6 +198,11 @@ SuggestionResult parseSuggestionOutput(String raw) {
 }
 
 /// Bóc code fence ```json ... ``` (và ``` ... ```) nếu LLM tự ý bọc.
+///
+/// Công khai từ P5 vì Post-Review (`lib/coaching/post_review_service.dart`) cần đúng bước này trên
+/// văn bản tự do — hai bản sao của cùng một phép bóc sẽ lệch nhau ngay lần đầu ai đó sửa một bên.
+String stripCodeFence(String text) => _stripCodeFence(text);
+
 String _stripCodeFence(String text) {
   if (!text.startsWith('```')) {
     return text;

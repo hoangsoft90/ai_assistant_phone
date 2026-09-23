@@ -37,9 +37,9 @@ mạng, timeout, JSON: tất cả quy về `NO_SUGGESTION` (có `note` chẩn đ
 | File | Vai trò |
 |---|---|
 | `suggestion_models.dart` | `NudgeType` (6 loại mục 4.5), `SuggestionResult`, `SuggestionContext`, `SuggestionException`, `parseSuggestionOutput()` |
-| `llm_provider.dart` | `abstract class LlmProvider` — thêm `GeminiLlmProvider` sau mà không sửa tầng trên |
-| `groq_llm_provider.dart` | Groq chat completions (`llama-3.1-8b-instant`, JSON mode); API key đọc từ `SecureStore` MỖI lần gọi |
-| `suggestion_policy.dart` | `canSuggest()` (chặn cứng + debounce) và `isRepetition()` (cửa sổ 2 phút) |
+| `llm_provider.dart` | `abstract class LlmProvider` (nudge JSON) — thêm `GeminiLlmProvider` sau mà không sửa tầng trên; **P5** thêm `abstract class TextLlmProvider` (văn bản tự do cho tóm tắt phiên + Post-Review) |
+| `groq_llm_provider.dart` | Groq chat completions (`llama-3.1-8b-instant`, JSON mode); API key đọc từ `SecureStore` MỖI lần gọi. Từ P5 dùng **chung một hàm `_chatContent`** cho cả `generateSuggestion()` và `complete()` |
+| `suggestion_policy.dart` | `canSuggest()` (chặn cứng + debounce + **cổng Training Level**) và `canSuggestWithContext()` (**P5**: Level 2 cần ngữ cảnh rõ / Level 3 chỉ khi "thật sự kẹt") + `isRepetition()` (cửa sổ 2 phút) |
 | `suggestion_context_builder.dart` | Dựng prompt khung **nguyên văn** + `formatPushTimestamp()` |
 | `session_memory.dart` | `recentSuggestions`/`topicsExplored`/`lastNudgeType` trong RAM (P2 chưa persist) |
 | `suggestion_service.dart` | Orchestrator `push()` / `pushFromState()` — nơi duy nhất UI nên gọi |
@@ -54,17 +54,19 @@ mạng, timeout, JSON: tất cả quy về `NO_SUGGESTION` (có `note` chẩn đ
 4. **Chỉ TEXT đi lên cloud** — audio 100% offline (P1C/P1D); không thêm cloud ASR ở bất kỳ phase nào.
 5. **Không nhãn speaker** trong transcript đưa vào prompt (`[Bạn]/[Đối phương]` bị cấm — P1E).
 6. **API key không bao giờ vào source/SQLite/log** — chỉ `SecureStore` (keystore OS).
-7. **Không dùng `as` để ép kiểu phản hồi LLM/HTTP** (bài học **A50**): sai kiểu ⇒ `TypeError`, mà
+7. **Training Level chặn ở policy, KHÔNG ở prompt** (mục 4.9): Level 4/5 ⇒ `NO_SUGGESTION` **có chủ đích** và
+   **không** fallback cache; Emergency Phrase không đi qua policy nên không bị chặn.
+8. **Không dùng `as` để ép kiểu phản hồi LLM/HTTP** (bài học **A50**): sai kiểu ⇒ `TypeError`, mà
    `TypeError` không phải `SuggestionException` ⇒ nó xuyên qua `on SuggestionException` và `push()`
    ném ra UI. Đọc bằng `is`; giữ `_generateOnce()` trong `suggestion_service.dart` làm lưới an toàn.
-8. **Không log nội dung nudge** (nội dung suy từ hội thoại = dữ liệu nhạy cảm) — chỉ log loại + lý do.
+9. **Không log nội dung nudge** (nội dung suy từ hội thoại = dữ liệu nhạy cảm) — chỉ log loại + lý do.
    Dùng `SuggestionResult.logLabel` cho mọi dòng log; `toString()` (có nội dung) chỉ để hiển thị/test.
 
 ## Còn nợ / việc của phase sau
 
 - **Offline Nudge Cache** — ✅ đã có ở P3. Nợ **K44**: câu trong cache là câu **chung**, không theo nội
   dung hội thoại (ta không biết nội dung khi LLM không trả về) — nếu dùng thật thấy vô dụng thì chốt lại ở P5.
-- **Pre-Brief + Session summary** trong prompt đang để rỗng — P5 (summary cần LLM tóm tắt định kỳ).
+- **Pre-Brief + Session summary** trong prompt — ✅ **đã có thật từ P5** (`lib/coaching/`); `build(build{preBrief, summary})` mặc định rỗng nên mọi test cũ vẫn giữ hành vi cũ.
 - **Nút Push thật** — ✅ đã có ở P3 (`lib/trigger/`, nút nổi + gesture giữ 2s = Emergency).
 - `SessionMemory` chưa persist qua lần mở app (P2 yêu cầu "chưa cần persist phức tạp").
 - Anti-repetition so khớp text chuẩn hoá **hoặc** cùng `type` — đúng nghĩa "trùng chủ đề/type" trong

@@ -113,6 +113,52 @@ abstract final class SessionConfig {
   static const int latencySampleLimit = 50;
 }
 
+/// Cấu hình Coaching — Pre-Brief + Session Summary + Post-Review + Training Level (P5).
+///
+/// Mọi ngưỡng ở đây là **ngưỡng chi phí/thời gian gọi LLM**, không phải ngưỡng nghiệp vụ: chúng chỉ
+/// quyết định *bao lâu thì gọi thêm một lần*, để các tính năng mới của P5 không biến mỗi lần bấm Push
+/// thành nhiều request LLM.
+abstract final class CoachingConfig {
+  /// Khoá lưu **bản nháp Pre-Brief** trong bảng `meta` (dùng lại `ConfigStore` như P1D/P3).
+  ///
+  /// Vì sao lưu nháp: form Pre-Brief có 6 trường người dùng phải gõ lại mỗi buổi — Pre-Brief là ngữ
+  /// cảnh *của buổi*, không phải dữ liệu hội thoại, nên giữ lại để tự điền lần sau là hợp lý. Dữ liệu
+  /// nằm trong sandbox app (không mã hoá — giống transcript, xem `transcript_dao.dart`).
+  static const String preBriefDraftKey = 'coaching.pre_brief';
+
+  /// Khoá lưu **Training Level** đã chọn (mục 4.9 — hoàn toàn thủ công).
+  static const String trainingLevelKey = 'coaching.training_level';
+
+  /// Nhịp tóm tắt phiên: tối thiểu bao nhiêu nudge mới gọi LLM tóm tắt một lần (mục 4.10/P5 task 2).
+  ///
+  /// 4 nudge: đủ để "diễn biến" có gì mới, mà không tốn một request cho mỗi lần bấm Push (mỗi buổi có
+  /// thể có hàng chục lần bấm).
+  static const int summaryEveryNudges = 4;
+
+  /// Trần thời gian giữa hai lần tóm tắt: buổi nói chuyện im lặng lâu mà vẫn có nudge thì tóm tắt
+  /// lại theo nhịp này (điều kiện HOẶC với [summaryEveryNudges]).
+  static const Duration summaryInterval = Duration(minutes: 5);
+
+  /// Trần số ký tự transcript gửi cho LLM ở **mỗi** lần tóm tắt / Post-Review.
+  ///
+  /// Lý do phải có trần (không chỉ để tiết kiệm token): buổi nói 45 phút có thể sinh vài chục nghìn ký
+  /// tự; gửi hết sẽ vượt context window của model nhỏ và làm request lỗi ⇒ tính năng "tự chết" giữa
+  /// buổi dài. Cắt từ **đầu** (giữ phần gần đây nhất) vì phần gần đây mới là thứ cần cho gợi ý. Khi
+  /// cắt, báo cáo phải nói rõ là đã cắt (không im lặng).
+  static const int transcriptCharLimit = 6000;
+
+  /// Trần số ký tự của bản tóm tắt phiên đưa vào prompt khung (`{summary}`) — tóm tắt dài sẽ ăn hết
+  /// chỗ của transcript 30s trong cửa sổ context của model nhỏ.
+  static const int summaryCharLimit = 400;
+
+  /// Ngưỡng "thật sự kẹt" cho Training Level 3 (Minimal, mục 4.9: *"chỉ khi thật sự kẹt"*).
+  ///
+  /// Đo được bằng dữ liệu đã có: khoảng lặng kể từ dòng transcript cuối. Đây là **suy luận** của tôi
+  /// (prompt P5 cho phép agent tự thiết kế luật cho từng cấp) — ghi rõ trong báo cáo phase để chỉnh
+  /// sau khi có phiên thật.
+  static const Duration minimalStuckSilence = Duration(seconds: 8);
+}
+
 /// Cấu hình chế độ hiển thị nudge (P3 mục 4.8).
 abstract final class OutputConfig {
   /// Khoá lưu chế độ output trong bảng `meta` (dùng lại `ConfigStore` như P1D).

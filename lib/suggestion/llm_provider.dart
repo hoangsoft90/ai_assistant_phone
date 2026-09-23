@@ -10,3 +10,18 @@ import 'suggestion_models.dart';
 abstract class LlmProvider {
   Future<SuggestionResult> generateSuggestion(SuggestionContext context);
 }
+
+/// Provider LLM cho **văn bản tự do** (P5: tóm tắt phiên + Post-Review).
+///
+/// Vì sao tách khỏi [LlmProvider] thay vì thêm method vào đó: [LlmProvider] có hợp đồng rất hẹp —
+/// *luôn* trả `SuggestionResult` đã parse từ JSON nudge — và mọi fake trong test đều bám hợp đồng đó.
+/// Nhét thêm một method trả `String` vào đây sẽ (a) buộc mọi implementation/fake phải khai báo cả hai
+/// việc không liên quan nhau, (b) trộn hai loại lỗi khác nhau: lỗi parse JSON nudge là chuyện nhỏ
+/// (quy về `NO_SUGGESTION`), còn lỗi của tóm tắt/Post-Review chỉ có nghĩa "không tạo được văn bản".
+///
+/// Hợp đồng: trả text đã trim, ném [SuggestionException] cho mọi lỗi vận hành (mạng/timeout/HTTP/
+/// thiếu key). Caller **không bao giờ** để lỗi này nổi lên UI — xem `SessionSummaryService`/
+/// `PostReviewService` (đều nuốt lỗi và ghi `note` chẩn đoán).
+abstract class TextLlmProvider {
+  Future<String> complete({required String prompt, int maxTokens});
+}

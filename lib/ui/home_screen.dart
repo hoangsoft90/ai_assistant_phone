@@ -14,11 +14,17 @@ import '../audio/vad/conversation_state.dart';
 import '../audio/vad/conversation_state_notifier.dart';
 import '../audio/nudge_delivery.dart';
 import '../audio/output_mode_selector.dart';
+import '../coaching/post_review_service.dart';
+import '../coaching/session_summary.dart';
+import '../coaching/training_level.dart';
 import '../core/app_logger.dart';
 import '../core/constants.dart';
 import '../suggestion/suggestion_models.dart';
 import '../trigger/trigger_manager.dart';
 import 'floating_button.dart';
+import 'post_review_screen.dart';
+import 'pre_brief_screen.dart';
+import 'stats_screen.dart';
 import '../services/conversation_session_controller.dart';
 import '../services/foreground_service.dart';
 import '../services/permission_gate.dart';
@@ -98,6 +104,12 @@ class _HomeScreenState extends State<HomeScreen> {
   double _speechRate = OutputConfig.defaultSpeechRate;
   bool _suggesting = false;
 
+  /// P5 (mục 4.9): cấp độ huấn luyện — người dùng tự chọn, app KHÔNG tự đề xuất.
+  TrainingLevel _level = TrainingLevelStore.defaultLevel;
+
+  /// P5 task 3: Post-Review dùng transcript cục bộ (text), chạy khi người dùng bấm "Kết thúc buổi".
+  late final PostReviewService _postReview = PostReviewService();
+
   @override
   void initState() {
     super.initState();
@@ -106,6 +118,20 @@ class _HomeScreenState extends State<HomeScreen> {
     unawaited(_loadAsrConfig());
     unawaited(_refreshTts());
     unawaited(_loadOutputSettings()); // P3: chế độ hiển thị + tốc độ đọc đã lưu.
+    unawaited(_loadCoachingSettings()); // P5: Pre-Brief đã lưu + Training Level.
+  }
+
+  /// P5: nạp Pre-Brief đã lưu (dùng làm ngữ cảnh cho phiên đang chuẩn bị) + Training Level.
+  ///
+  /// Đặt Pre-Brief đã lưu làm Pre-Brief **của phiên** ngay khi mở app: người dùng thường mở app rồi
+  /// bấm "Bật lắng nghe" luôn; nếu chỉ hiện nó trong form thì `{pre_brief}` vẫn rỗng cho tới khi họ
+  /// mở màn hình Pre-Brief một lần nữa.
+  Future<void> _loadCoachingSettings() async {
+    final TrainingLevel level = await _session.trigger.suggestions.levels.load();
+    await _session.trigger.suggestions.preBriefs.restoreDraftAsCurrent();
+    if (mounted) {
+      setState(() => _level = level);
+    }
   }
 
   /// Đăng ký mọi nguồn sự kiện hạ tầng (F4). Mỗi nguồn bọc riêng: một mảnh lỗi không cản mảnh
@@ -406,6 +432,97 @@ class _HomeScreenState extends State<HomeScreen> {
     _enqueueSnack('Tốc độ đọc: ${normalized.toStringAsFixed(2)}x');
   }
 
+  // ------------------------------------------------------------------ P5: coaching
+
+  /// Mở màn hình Pre-Brief (P5 task 1). Kết quả đã được store ghi sẵn — UI chỉ cần thông báo.
+  Future<void> _openPreBrief() async {
+    final NavigatorState navigator = Navigator.of(context);
+    final bool? saved = await navigator.push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (BuildContext _) =>
+            PreBriefScreen(store: _session.trigger.suggestions.preBriefs),
+      ),
+    );
+    if (saved != true || !mounted) {
+      return;
+    }
+    final bool has = _session.trigger.suggestions.preBriefs.hasCurrent;
+    _enqueueSnack(has ? 'Đã lưu Pre-Brief cho buổi này.' : 'Đã xoá Pre-Brief.');
+    setState(() {});
+  }
+
+  /// Đổi Training Level (P5 task 4 — mục 4.9). Chỉ ghi cấu hình; **không** kèm bất kỳ gợi ý đổi cấp nào.
+  Future<void> _selectLevel(TrainingLevel? level) async {
+    if (level == null || level == _level) {
+      return;
+    }
+    final bool saved = await _session.trigger.suggestions.levels.save(level);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _level = _session.trigger.suggestions.levels.current);
+    _enqueueSnack(
+      saved
+          ? 'Cấp độ: ${level.label} — ${level.behavior}'
+          : 'Không lưu được cấp độ (${level.label})',
+    );
+  }
+
+  /// Mở màn hình số liệu 7 ngày (P5 task 4). Chỉ hiển thị — xem ghi chú ở `stats_screen.dart`.
+  void _openStats() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (BuildContext _) => StatsScreen(currentLevelLabel: _level.label),
+      ),
+    );
+  }
+
+  /// **Kết thúc buổi** → Post-Review (P5 task 3): tắt phiên rồi phân tích transcript của buổi vừa nói.
+  ///
+  /// Thứ tự có ý nghĩa: `stop()` trước (nhả ASR/model, đúng thứ tự của P4) rồi mới phân tích — nếu
+  /// phân tích trước, LLM có thể đang chạy trong lúc mic/ASR còn sống, và tệ hơn là nudge mới sẽ chen
+  /// vào bản nhận xét. Transcript thì KHÔNG bị mất khi tắt phiên (`TranscriptStore` giữ nguyên phiên
+  /// cho tới khi mở app tạo phiên mới), nên vẫn đọc được đầy đủ sau `stop()`.
+  Future<void> _finishSessionAndReview() async {
+    final NavigatorState navigator = Navigator.of(context);
+    setState(() => _busy = true);
+    try {
+      if (_session.isActive) {
+        await _session.stop();
+        if (mounted) {
+          _enqueueSnack('Đã kết thúc buổi — đang tạo nhận xét...');
+        }
+      }
+      final PostReviewReport report = await _postReview.run();
+      // Transcript đầy đủ chỉ để hiện ở "xem chi tiết" — đọc lỗi thì vẫn hiện báo cáo, chỉ mất phần chi
+      // tiết (không được để một lần đọc DB lỗi làm mất cả bản nhận xét).
+      String detail = '';
+      try {
+        detail = (await _transcript.sessionTranscript()).text;
+      } catch (error) {
+        _log.warn('không đọc được transcript cho phần chi tiết: $error');
+      }
+      _log.info('post-review: ${report.toString()}');
+      await navigator.push<void>(
+        MaterialPageRoute<void>(
+          builder: (BuildContext _) =>
+              PostReviewScreen(report: report, detailTranscript: detail),
+        ),
+      );
+    } catch (error, stackTrace) {
+      // `PostReviewService.run()` cam kết không ném; đây là lưới an toàn cuối cùng của UI.
+      _log.error('Post-Review lỗi ngoài dự kiến', error, stackTrace);
+      if (mounted) {
+        _enqueueSnack('Không tạo được nhận xét: $error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+      await _refreshStatus();
+    }
+  }
+
   /// Hàng đợi SnackBar: mọi lỗi/tiến trình đi qua đây để không tự ý gọi `context` sau khi
   /// widget đã bị hủy, và không hiện đè nhau khi nhiều lỗi đến liên tục.
   void _enqueueSnack(String message) {
@@ -650,6 +767,47 @@ class _HomeScreenState extends State<HomeScreen> {
             onChangeEnd: (double value) => unawaited(_saveSpeechRate(value)),
           ),
           const SizedBox(height: 16),
+          // P5 task 1: Pre-Brief của buổi — dữ liệu này thay `{pre_brief}` rỗng của P2 trong prompt.
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => unawaited(_openPreBrief()),
+            icon: const Icon(Icons.checklist_outlined),
+            label: const Text('Pre-Brief buổi này (P5)'),
+          ),
+          const SizedBox(height: 8),
+          // P5 task 4 (mục 4.9): cấp độ do người dùng tự chọn — không có nút "đề xuất", không có nhắc
+          // nhở tự động. Mô tả hành vi hiện ngay dưới để biết mình vừa chọn gì.
+          DropdownButtonFormField<TrainingLevel>(
+            key: ValueKey<TrainingLevel>(_level),
+            initialValue: _level,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Cấp độ huấn luyện (P5)',
+              // Hành vi của cấp ĐANG chọn hiện ở helperText (không nhét vào item): nhét cả câu mô tả vào
+              // item làm dropdown tràn ngang trên màn hẹp — smoke test bắt được lỗi overflow này.
+              helperText: _level.behavior,
+              border: const OutlineInputBorder(),
+            ),
+            items: TrainingLevel.values
+                .map((TrainingLevel level) => DropdownMenuItem<TrainingLevel>(
+                      value: level,
+                      child: Text(level.label),
+                    ))
+                .toList(),
+            onChanged: _busy ? null : _selectLevel,
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => unawaited(_finishSessionAndReview()),
+            icon: const Icon(Icons.school_outlined),
+            label: const Text('Kết thúc buổi + nhận xét (P5)'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _openStats,
+            icon: const Icon(Icons.bar_chart_outlined),
+            label: const Text('Số liệu 7 ngày (P5)'),
+          ),
+          const SizedBox(height: 16),
           _statusCard(),
         ],
       ),
@@ -699,6 +857,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _infoRow('Emergency', _emergencyText()),
             _infoRow('Nhận dạng', _session.lastTranscriptText),
             _infoRow('Gợi ý (P3)', _suggestionText()),
+            _infoRow('Coaching (P5)', _coachingText()),
             _infoRow('Transcript', _transcriptText()),
             _infoRow('Push gần nhất', _pushText()),
             _infoRow('Lưu trữ', _databaseStatus),
@@ -801,6 +960,38 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return 'NO_SUGGESTION${result.note == null ? '' : ' · ${result.note}'}'
         '${result.unavailable ? ' · LLM không dùng được' : ''}';
+  }
+
+  /// Trạng thái lớp Coaching (P5) cho màn hình chẩn đoán.
+  ///
+  /// Hiện **số liệu** của tóm tắt phiên (số lần + lý do lần cuối thất bại), KHÔNG hiện nội dung tóm
+  /// tắt: nội dung đó suy ra từ hội thoại thật, cùng mức nhạy cảm với transcript (quyết định từ review
+  /// P2 — nội dung nudge/transcript không lên logcat, và đây cũng là màn hình chẩn đoán).
+  String _coachingText() {
+    final bool hasPreBrief = _session.trigger.suggestions.preBriefs.hasCurrent;
+    final SessionSummaryService summaries = _session.trigger.suggestions.summaries;
+    final StringBuffer buffer = StringBuffer(_level.label);
+    buffer.write(hasPreBrief ? ' · Pre-Brief: có' : ' · Pre-Brief: chưa nhập');
+    if (summaries.refreshCount > 0) {
+      final DateTime? at = summaries.updatedAt;
+      buffer.write(' · tóm tắt ${summaries.refreshCount} lần');
+      if (at != null) {
+        buffer.write(' (mới nhất '
+            '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')})');
+      }
+    } else {
+      buffer.write(' · chưa tóm tắt');
+    }
+    // Số lần chạy Post-Review là bằng chứng cho phần "học hỏi sau" của P5 (DoD-2) — hiện ở đây để
+    // không phải mở màn hình nhận xét mới biết nó có chạy hay không.
+    if (_postReview.runCount > 0) {
+      buffer.write(' · nhận xét ${_postReview.runCount} lần');
+    }
+    final String? note = summaries.lastNote;
+    if (note != null) {
+      buffer.write(' ($note)');
+    }
+    return buffer.toString();
   }
 
   /// Mốc Push gần nhất (P1E) — P2 sẽ đưa mốc này vào prompt LLM.

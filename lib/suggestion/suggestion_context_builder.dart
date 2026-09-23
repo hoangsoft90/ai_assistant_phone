@@ -1,3 +1,4 @@
+import '../coaching/pre_brief.dart';
 import '../transcript/transcript_store.dart';
 import 'session_memory.dart';
 import 'suggestion_models.dart';
@@ -17,15 +18,21 @@ class SuggestionContextBuilder {
   ///
   /// [window] là kết quả `TranscriptStore.recentWindow()` — text **không nhãn speaker** (ràng buộc
   /// xuyên phase từ P1E: không thêm `[Bạn]/[Đối phương]`).
+  /// P5: [preBrief] là Pre-Brief **của phiên đang chạy** và [summary] là bản tóm tắt phiên do
+  /// `SessionSummaryService` cập nhật định kỳ — hai tham số này thay cho hai chuỗi rỗng mà P2 để lại
+  /// ("`{pre_brief}`/`{summary}` = giá trị mock rỗng trước đây"). Mặc định rỗng để mọi caller/test cũ
+  /// giữ nguyên hành vi cũ (prompt in `(chưa có)`).
   SuggestionContext build({
     required TranscriptWindow window,
     required SessionMemory memory,
     required DateTime now,
+    PreBrief preBrief = PreBrief.empty,
+    String summary = '',
   }) {
     return SuggestionContext(
       prompt: buildPrompt(
-        preBrief: '',
-        summary: '',
+        preBrief: preBrief.toPromptValue(),
+        summary: summary,
         recentTranscript: window.text,
         pushTimestamp: window.lastPushMoment == null
             ? ''
@@ -39,6 +46,8 @@ class SuggestionContextBuilder {
           : formatPushTimestamp(window.lastPushMoment!),
       topicsExplored: memory.topicsExplored(),
       lastSuggestions: memory.lastSuggestionLines(),
+      preBrief: preBrief.toPromptValue(),
+      summary: summary,
     );
   }
 

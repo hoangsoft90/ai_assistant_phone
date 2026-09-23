@@ -19,7 +19,7 @@ import 'suggestion_models.dart';
 ///   rồi quy về `NO_SUGGESTION`.
 /// - Thân phản hồi được đọc bằng kiểm tra kiểu (`is`), **không cast cứng** — envelope dị dạng phải
 ///   ra [SuggestionException], không được ném `TypeError` (xem bài học A50).
-class GroqLlmProvider implements LlmProvider {
+class GroqLlmProvider implements LlmProvider, TextLlmProvider {
   GroqLlmProvider({
     http.Client? client,
     Future<String?> Function()? apiKeyReader,
@@ -38,6 +38,37 @@ class GroqLlmProvider implements LlmProvider {
 
   @override
   Future<SuggestionResult> generateSuggestion(SuggestionContext context) async {
+    // Prompt khung chính thức gửi nguyên văn trong MỘT message user — không tách system/user vì tách
+    // là sửa cấu trúc prompt (constraint P2). Nudge 2-4 từ / NO_SUGGESTION: temperature thấp cho ổn
+    // định, token trần nhỏ cho rẻ/nhanh, JSON mode để giảm xác suất trả text thường.
+    final String content = await _chatContent(
+      prompt: context.prompt,
+      maxTokens: 100,
+      temperature: 0.2,
+      jsonMode: true,
+    );
+    return parseSuggestionOutput(content);
+  }
+
+  /// **P5**: văn bản tự do (tóm tắt phiên / Post-Review) — cùng endpoint, key và timeout; khác
+  /// `generateSuggestion` ở chỗ không bật JSON mode (bật JSON mode mà prompt không yêu cầu JSON là
+  /// cách chắc chắn nhất để model trả về một object rỗng) và temperature cao hơn một chút để câu văn
+  /// không lặp khuôn.
+  @override
+  Future<String> complete({required String prompt, int maxTokens = 400}) =>
+      _chatContent(prompt: prompt, maxTokens: maxTokens, temperature: 0.3, jsonMode: false);
+
+  /// Gọi chat completions và trả **nội dung của message đầu tiên**.
+  ///
+  /// Gộp một chỗ để hai tính năng (nudge P2, văn bản P5) không thể lệch nhau về cách đọc envelope hay
+  /// cách xử lý lỗi — chính kiểu lệch đó đã sinh lỗi ở P3/P4. Mọi nhánh lỗi vẫn là
+  /// [SuggestionException] để tầng trên chỉ phải bắt một loại.
+  Future<String> _chatContent({
+    required String prompt,
+    required int maxTokens,
+    required double temperature,
+    required bool jsonMode,
+  }) async {
     final String? apiKey = await _apiKeyReader();
     if (apiKey == null || apiKey.isEmpty) {
       throw const SuggestionException('chưa có API key Groq (lưu qua SecureStore)');
@@ -46,14 +77,11 @@ class GroqLlmProvider implements LlmProvider {
     final Map<String, Object?> body = <String, Object?>{
       'model': model,
       'messages': <Map<String, String>>[
-        // Prompt khung chính thức gửi nguyên văn trong MỘT message user — không tách system/user
-        // vì tách là sửa cấu trúc prompt (constraint P2).
-        <String, String>{'role': 'user', 'content': context.prompt},
+        <String, String>{'role': 'user', 'content': prompt},
       ],
-      // Nudge 2-4 từ / NO_SUGGESTION: temperature thấp cho ổn định, token trần nhỏ cho rẻ/nhanh.
-      'temperature': 0.2,
-      'max_completion_tokens': 100,
-      'response_format': <String, String>{'type': 'json_object'},
+      'temperature': temperature,
+      'max_completion_tokens': maxTokens,
+      if (jsonMode) 'response_format': <String, String>{'type': 'json_object'},
     };
 
     final http.Response response;
@@ -98,12 +126,11 @@ class GroqLlmProvider implements LlmProvider {
         : null;
     final Object? rawMessage =
         firstChoice is Map<String, dynamic> ? firstChoice['message'] : null;
-    final Object? content =
+    final Object? text =
         rawMessage is Map<String, dynamic> ? rawMessage['content'] : null;
-    if (content is! String || content.trim().isEmpty) {
+    if (text is! String || text.trim().isEmpty) {
       throw const SuggestionException('phản hồi LLM thiếu nội dung');
     }
-
-    return parseSuggestionOutput(content);
+    return text;
   }
 }

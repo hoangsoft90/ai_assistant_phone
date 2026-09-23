@@ -99,6 +99,27 @@ class _FakeDao implements TranscriptDao {
     return all.reduce((DateTime a, DateTime b) => a.isAfter(b) ? a : b);
   }
 
+  // P5: hai truy vấn mới cho thống kê tuần — bản giả gộp từ cùng dữ liệu trong bộ nhớ, giữ đúng ngữ
+  // nghĩa "kể từ [since]" của bản thật (xem doc `sessionsSince`/`pushesSince` trong `transcript_dao`).
+  @override
+  Future<List<TranscriptSession>> sessionsSince(DateTime since) async => sessions
+      .where((TranscriptSession s) => !s.lastActivityAt.isBefore(since))
+      .toList();
+
+  @override
+  Future<List<TranscriptPush>> pushesSince(DateTime since) async {
+    final List<TranscriptPush> all = <TranscriptPush>[];
+    pushes.forEach((int sessionId, List<DateTime> moments) {
+      for (final DateTime at in moments) {
+        if (!at.isBefore(since)) {
+          all.add(TranscriptPush(sessionId: sessionId, at: at));
+        }
+      }
+    });
+    all.sort((TranscriptPush a, TranscriptPush b) => a.at.compareTo(b.at));
+    return all;
+  }
+
   @override
   Future<int> deleteOlderThan(DateTime cutoff) async {
     lastCutoff = cutoff;
