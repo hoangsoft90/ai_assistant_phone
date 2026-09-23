@@ -51,9 +51,23 @@ Vì sao khác nhau: xem `pubspec.yaml` mục `assets:` và `lib/audio/asr/README
 - Chiều thu **100% offline** — không có đường cloud ASR (chỉ Post-Review P5 được phép, và chỉ khi có Wi-Fi).
 - Transcript **không có nhãn người nói** (bắt buộc từ P1E trở đi).
 - Âm thanh chỉ được phát qua `SafeTtsOutput` (P1F) — không liên quan chiều thu nhưng nhắc để không quên.
+- **KHÔNG free model native trong lúc còn lệnh native đang chạy** (review P4 tìm ra ở `WhisperChunkEngine`, đã
+  sửa): `nativeTranscribe` (whisper.cpp) **không phản ứng với interrupt**, nên `shutdownNow()` rồi
+  `nativeFreeModel(ctx)` ngay = use-after-free ⇒ crash tiến trình. `close()` nay `awaitTermination(5s)`
+  rồi mới free; quá 5s thì **không free** (chọn giữ bộ nhớ tới khi tiến trình chết thay vì crash).
+  `VoskStreamingEngine.release()` đã làm đúng kiểu này từ P1D — dùng nó làm mẫu khi sửa.
+- **Không để exception thoát ra khỏi task đang chạy trên pool thread**: trên Android, exception không bắt
+  được ở **bất kỳ** thread nào cũng giết cả tiến trình. Cụ thể ở đây: nhánh `finally` gọi
+  `submit(chunkChờ)` trong lúc executor vừa `shutdownNow()` ⇒ `RejectedExecutionException` ⇒ crash. Nên
+  `submit()` phải trả `Boolean` và tự bỏ qua khi executor đã đóng.
+- **Trường dùng chung giữa 2 thread phải là `@Volatile`** (`pending` của Whisper; `engine` của 2 bridge;
+  `recognizer` của Vosk): nếu không, chunk có thể bị mất âm thầm mà không ai đếm, hoặc `feed` chạy vào
+  engine vừa `release`.
 
 ## Nợ đang treo
 
+- **K47:** bản sửa review vòng 2 (P4) chưa verify trên máy — dừng nghe **đúng lúc** Whisper đang
+  transcribe (phải không crash + lần nghe sau vẫn chạy), và đổi engine giữa lúc đang transcript.
 - **K18/K19:** mọi số đo trên máy thật (RTF, pin, nhiệt, 45 phút liên tục, so sánh 2 engine).
 - **K20:** JNA nạp `libjnidispatch.so` trên máy thật (đã phòng bằng `useLegacyPackaging` + proguard).
 - **K21:** APK +32MB, `filesDir` +51MB lần đầu, RAM khi nạp model Vosk chưa đo.

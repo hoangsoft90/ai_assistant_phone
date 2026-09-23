@@ -54,6 +54,9 @@ class VoskStreamingEngine(
     private val lifecycleLock = Any()
 
     private var model: Model? = null
+
+    /** Ghi dưới [lifecycleLock], nhưng `feed`/`isLoaded` đọc từ platform thread ⇒ `@Volatile`. */
+    @Volatile
     private var recognizer: Recognizer? = null
     private var worker: Thread? = null
 
@@ -303,6 +306,13 @@ object VoskChannelBridge {
     const val VOSK_CHANNEL = "com.aiassistant.phone/vosk"
 
     private val registered = mutableSetOf<BinaryMessenger>()
+
+    /**
+     * Ghi từ thread `vosk-loader`, nhưng **đọc từ platform thread** trong nhánh `feed` (không cùng
+     * lock) ⇒ cần `@Volatile`, nếu không có thể đọc phải giá trị cũ và `feed` vào engine đã release
+     * (chunk xếp vào hàng đợi không ai lấy).
+     */
+    @Volatile
     private var engine: VoskStreamingEngine? = null
 
     /**

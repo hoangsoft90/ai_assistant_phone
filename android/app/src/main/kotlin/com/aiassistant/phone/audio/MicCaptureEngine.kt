@@ -57,6 +57,13 @@ class MicCaptureEngine(
 ) {
   @Volatile private var running = false
   private var thread: Thread? = null
+
+  /**
+   * Bảo vệ [record]. Lock **riêng**, không dùng monitor của engine: thread đọc nhả recorder trên
+   * đường lỗi, còn `stop()` giữ monitor của engine trong lúc `join()` ⇒ dùng chung monitor thì mỗi
+   * lần `read` lỗi, thread đọc bị chặn tới hết timeout join (1,5s) một cách vô ích.
+   */
+  private val recorderLock = Any()
   private var record: AudioRecord? = null
   private var config: CaptureConfig = CaptureConfig()
 
@@ -129,7 +136,7 @@ class MicCaptureEngine(
 
     // Sample rate thực tế thiết bị chấp nhận có thể khác yêu cầu.
     config = requested.copy(sampleRate = recorder.sampleRate)
-    record = recorder
+    synchronized(recorderLock) { record = recorder }
     running = true
     try {
       recorder.startRecording()
@@ -158,7 +165,10 @@ class MicCaptureEngine(
           // LƯU Ý: KHÔNG gọi stop() ở đây — stop() join chính thread này; gọi từ đây sẽ chờ
           // hết timeout join một cách vô ích. Dừng tại chỗ rồi nhả recorder.
           running = false
-          releaseRecorder()
+          // Nhả ĐÚNG recorder của thread này, không nhả theo field dùng chung: một `start()` xen vào
+          // giữa đường có thể đã đặt field sang AudioRecord MỚI, nhả theo field sẽ giết recorder mới
+          // (cùng họ lỗi K45/A54).
+          releaseRecorder(recorder)
           Log.e(TAG, "AudioRecord.read lỗi code=$read — đã dừng capture")
           onFailure("CAPTURE_FAILED", "AudioRecord.read trả mã lỗi $read")
         }
@@ -179,32 +189,62 @@ class MicCaptureEngine(
     }
   }
 
-  /** Dừng ghi và giải phóng AudioRecord. No-op nếu chưa chạy. */
+  /**
+   * Dừng ghi và giải phóng AudioRecord. No-op nếu chưa từng chạy.
+   *
+   * Trả `true` nếu thread đọc **vẫn còn sống** sau khi chờ (hiếm: `read()` kẹt trong HAL quá lâu).
+   * Người gọi cần lái (như [release]) dùng giá trị này để tránh đóng native dưới chân thread đó.
+   */
   @Synchronized
-  fun stop() {
-    if (!running) return
+  fun stop(): Boolean {
+    val wasRunning = running
     running = false
-    // Chờ thread đọc thoát (nó là thread khác, không phải thread đang gọi).
-    thread?.let { runCatching { it.join(1500) } }
-    thread = null
-    releaseRecorder()
-    Log.i(TAG, "đã dừng thu (không release engine — có thể start lại)")
+    // Join kể cả khi `running` đã false: thread đọc có thể **tự** dừng vì lỗi và còn đang thoát ra.
+    // Nếu bỏ qua join ở ca đó thì (a) `release()` có thể đóng VAD ngay trong lúc thread đó còn gọi
+    // `analyze()` (native đã close ⇒ crash), và (b) `start()` kế tiếp chạy song song với nó.
+    val alive = joinReaderThread()
+    releaseRecorder(synchronized(recorderLock) { record })
+    if (wasRunning) {
+      Log.i(TAG, "đã dừng thu (không release engine — có thể start lại)")
+    }
+    return alive
   }
 
-  /** Nhả AudioRecord. Không join thread — dùng được cả từ trong thread đọc. */
-  @Synchronized
-  private fun releaseRecorder() {
-    record?.let { recorder ->
-      runCatching { recorder.stop() }
-      runCatching { recorder.release() }
+  /** Chờ thread đọc thoát. Trả `true` nếu nó còn sống sau timeout. */
+  private fun joinReaderThread(): Boolean {
+    val reader = thread ?: return false
+    thread = null
+    // Không bao giờ tự join chính mình (thread đọc cũng có thể gọi đường này qua `start()` lỗi).
+    if (reader === Thread.currentThread()) return false
+    runCatching { reader.join(1500) }
+    return reader.isAlive
+  }
+
+  /**
+   * Nhả recorder [target] — **chỉ** nhả đối tượng đó, và chỉ null field nếu field còn trỏ đúng nó.
+   *
+   * Không chờ thread (dùng được cả từ **trong** thread đọc), và dùng [recorderLock] thay vì monitor
+   * của engine để không chặn nhau với `stop()` đang `join()`.
+   */
+  private fun releaseRecorder(target: AudioRecord?) {
+    if (target == null) return
+    synchronized(recorderLock) {
+      if (record === target) record = null
     }
-    record = null
+    runCatching { target.stop() }
+    runCatching { target.release() }
   }
 
   /** Giải phóng hoàn toàn (chỉ gọi khi không dùng lại). */
   @Synchronized
   fun release() {
-    stop()
+    val readerAlive = stop()
+    if (readerAlive) {
+      // Chưa thoát sau 1,5s: KHÔNG đóng VAD dưới chân thread đang `analyze()` (native đã close ⇒ có
+      // thể crash tiến trình). Cùng đánh đổi với `VoskStreamingEngine.release()` (join 5s rồi thôi).
+      Log.e(TAG, "thread đọc chưa thoát — bỏ qua đóng VAD (tránh crash native)")
+      return
+    }
     vadDetector?.let { runCatching { it.close() } }
     vadDetector = null
     vadEnabled = false

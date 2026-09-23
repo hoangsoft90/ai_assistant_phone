@@ -7,6 +7,8 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -46,7 +48,14 @@ class WhisperChunkEngine(
     private val busy = AtomicBoolean(false)
     private val dropped = AtomicInteger(0)
 
-    /** Chunk chờ khi engine bận (tối đa 1 — chunk mới nhất thắng). */
+    /**
+     * Chunk chờ khi engine bận (tối đa 1 — chunk mới nhất thắng).
+     *
+     * `@Volatile`: field này bị **hai** thread đụng vào — `feed()` (platform thread, qua kênh) và
+     * task transcribe (pool thread, trong `finally`). Không có `@Volatile` thì thread này có thể
+     * không thấy chunk vừa được thread kia ghi (chunk mất âm thầm, không ai đếm vào `dropped`).
+     */
+    @Volatile
     private var pending: FloatArray? = null
 
     private var ctx = 0L
@@ -89,39 +98,82 @@ class WhisperChunkEngine(
         submit(floats, audioMs)
     }
 
-    private fun submit(chunk: FloatArray, audioMs: Long) {
-        executor.execute {
-            val t0 = System.currentTimeMillis()
-            var text = ""
-            try {
-                text = AsrNative.nativeTranscribe(ctx, chunk, threads) ?: ""
-            } catch (t: Throwable) {
-                Log.e(TAG, "transcribe lỗi", t)
-                text = ""
-            } finally {
-                busy.set(false)
-                // Chunk chờ (nếu có) trở thành việc kế tiếp.
-                val next = pending
-                pending = null
-                if (next != null) {
-                    if (!busy.compareAndSet(false, true)) {
-                        // Hiếm: thread khác vừa chiếm — nhả lại (vẫn giữ chunk mới nhất).
-                        pending = next
-                    } else {
-                        submit(next, audioMs)
+    /**
+     * Xếp một chunk vào executor. Trả `false` nếu executor **đã đóng** (engine đang `close()`).
+     *
+     * Không được để `RejectedExecutionException` thoát ra ngoài: nó ném ngay trong task đang chạy
+     * trên pool thread ⇒ Android coi là lỗi không bắt được và **giết cả tiến trình**. Đường vào
+     * thật: người dùng dừng nghe đúng lúc whisper đang transcribe và có 1 chunk đang chờ ⇒ nhánh
+     * `finally` gọi `submit(next, …)` khi executor vừa bị `shutdownNow()`.
+     */
+    private fun submit(chunk: FloatArray, audioMs: Long): Boolean {
+        if (executor.isShutdown) {
+            busy.set(false)
+            Log.w(TAG, "executor đã đóng — bỏ chunk, không nhận việc mới")
+            return false
+        }
+        return try {
+            executor.execute {
+                val t0 = System.currentTimeMillis()
+                var text = ""
+                try {
+                    text = AsrNative.nativeTranscribe(ctx, chunk, threads) ?: ""
+                } catch (t: Throwable) {
+                    Log.e(TAG, "transcribe lỗi", t)
+                    text = ""
+                } finally {
+                    busy.set(false)
+                    // Chunk chờ (nếu có) trở thành việc kế tiếp.
+                    val next = pending
+                    pending = null
+                    if (next != null) {
+                        if (!busy.compareAndSet(false, true)) {
+                            // Hiếm: thread khác vừa chiếm — nhả lại (vẫn giữ chunk mới nhất).
+                            pending = next
+                        } else {
+                            // `submit` tự bỏ qua (không ném) nếu engine đã đóng.
+                            submit(next, audioMs)
+                        }
                     }
                 }
+                if (text.startsWith("ERR:")) {
+                    Log.w(TAG, "whisper trả lỗi: $text")
+                    text = ""
+                }
+                onResult(text.trim(), System.currentTimeMillis() - t0, audioMs, dropped.get())
             }
-            if (text.startsWith("ERR:")) {
-                Log.w(TAG, "whisper trả lỗi: $text")
-                text = ""
-            }
-            onResult(text.trim(), System.currentTimeMillis() - t0, audioMs, dropped.get())
+            true
+        } catch (rejected: RejectedExecutionException) {
+            Log.w(TAG, "executor vừa đóng trong lúc xếp chunk — bỏ chunk (${rejected.message})")
+            busy.set(false)
+            false
         }
     }
 
+    /**
+     * Giải phóng engine: **chờ** chunk đang transcribe xong rồi mới free model.
+     *
+     * Vì sao phải chờ: `nativeTranscribe` chạy trong whisper.cpp (native) và **không** phản ứng với
+     * interrupt, nên `shutdownNow()` rồi `nativeFreeModel(ctx)` ngay lập tức là free vùng nhớ mà
+     * lệnh native đang dùng ⇒ use-after-free ⇒ crash tiến trình. `VoskStreamingEngine.release()` đã
+     * làm đúng kiểu này (join 5s, không kịp thì bỏ qua flush/close) — đây là bản tương ứng.
+     *
+     * Chunk còn đang chờ (chưa chạy) bị bỏ luôn: đang dừng nghe thì audio cũ không còn giá trị.
+     * Nếu quá 5s vẫn chưa xong: **không** free (chọn giữ bộ nhớ model tới khi tiến trình chết thay vì
+     * crash) — đánh đổi này giống Vosk và đã ghi rõ trong log.
+     */
     override fun close() {
         executor.shutdownNow()
+        val finished = try {
+            executor.awaitTermination(5, TimeUnit.SECONDS)
+        } catch (interrupted: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+        if (!finished) {
+            Log.e(TAG, "transcribe chưa xong sau 5s — KHÔNG free model (tránh crash native)")
+            return
+        }
         if (ctx != 0L) {
             AsrNative.nativeFreeModel(ctx)
             ctx = 0L
@@ -144,6 +196,13 @@ object AsrChannelBridge {
     const val ASR_CHANNEL = "com.aiassistant.phone/asr"
 
     private val registered = mutableSetOf<BinaryMessenger>()
+
+    /**
+     * Ghi từ thread `asr-loader`, nhưng **đọc từ platform thread** trong nhánh `feed` (không cùng
+     * lock) ⇒ cần `@Volatile`, nếu không có thể đọc phải giá trị cũ và `feed` vào engine đã release
+     * (chunk bị bỏ, hoặc lỗi `ASR_FAILED` không đáng có).
+     */
+    @Volatile
     private var engine: WhisperChunkEngine? = null
 
     /**

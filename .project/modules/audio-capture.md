@@ -64,6 +64,9 @@ hợp đồng kênh thật qua mock MethodChannel. Smoke test đã thêm stub 2 
 - [ ] **Mã Kotlin chưa từng được biên dịch** (máy dev không có Android SDK) — rủi ro nằm ở đây.
 - [ ] P1B: đưa VAD vào isolate của service + chốt lại `chunkMs` (20–30ms?).
 - [ ] `permanentlyDenied` chưa có đường thoát (không `openAppSettings()`).
+- [ ] ⚠ **Bản sửa review vòng 2 (P4) chưa verify trên máy**: lỗi `AudioRecord.read` giữa lúc thu ⇒
+      restart tối đa 2 (theo P4) phải **thu lại được** (không bị "giết" recorder mới), và `dispose`
+      giữa lúc thu không được crash. Xem nợ **K47**.
 
 ## 8. Cảnh báo khi sửa — ⚠ đọc trước
 
@@ -76,7 +79,18 @@ hợp đồng kênh thật qua mock MethodChannel. Smoke test đã thêm stub 2 
 5. **Chunk phát ra phải là bản copy riêng** (`buffer.copyOf()`) — buffer native được tái sử dụng cho
    khung sau; giữ tham chiếu vào buffer gốc sẽ cho dữ liệu rác.
 6. **`stop()` của `MicCaptureEngine` không được gọi từ thread đọc** (nó `join` chính thread đó) — dùng
-   `releaseRecorder()` như nhánh lỗi đang làm.
+   `releaseRecorder(recorder)` như nhánh lỗi đang làm.
+6b. **Nhả tài nguyên phải theo "chủ sở hữu", không theo field dùng chung** (A54/K45): nhánh lỗi của
+   thread đọc gọi `releaseRecorder(recorder)` — recorder của **chính nó** — và `releaseRecorder` chỉ
+   null field nếu field còn trỏ đúng đối tượng đó. Nhả theo `record` hiện tại có thể nhả mất
+   `AudioRecord` MỚI khi `start()` xen vào giữa đường.
+6c. **`record` chỉ được đụng dưới `recorderLock`** (lock riêng, KHÔNG dùng monitor của engine): thread
+   đọc nhả recorder trên đường lỗi, còn `stop()` giữ monitor của engine trong lúc `join()` — dùng
+   chung monitor thì mỗi lần `read` lỗi, thread đọc bị chặn tới hết timeout join (1,5s).
+6d. **`stop()` phải join kể cả khi `running` đã false** (thread đọc có thể tự dừng vì lỗi và còn đang
+   thoát ra) — nếu bỏ qua: `release()` có thể `close()` VAD trong lúc thread đó còn `analyze()`
+   (native đã close ⇒ crash), và `start()` kế tiếp chạy song song với nó. `stop()` trả `true` nếu
+   thread vẫn còn sống sau timeout; `release()` dựa vào đó để **bỏ qua** việc đóng VAD.
 7. **Mỗi engine phải có sink riêng** (`PcmSinkHolder`): dùng chung một set sẽ làm engine này ngừng nghe
    → xoá luôn listener của engine kia (lỗi đã từng mắc, đã sửa).
 8. Chạm tầng này = chạm **vùng loại trừ Ponytail** (audio routing, an toàn) ⇒ không tự commit.
