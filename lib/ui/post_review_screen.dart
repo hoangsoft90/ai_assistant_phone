@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../coaching/post_review_service.dart';
+import 'report_sections.dart';
 
 /// Màn hình **Post-Review** (P5 task 3 — mục 4.10): hiển thị báo cáo 3 mục sau khi kết thúc buổi.
 ///
@@ -29,42 +30,8 @@ class PostReviewScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: <Widget>[
-          if (report.fromLlm)
-            ...<Widget>[
-              _section(context, 'Điều đã làm tốt', report.good, Icons.thumb_up_outlined),
-              _section(context, 'Cơ hội bị bỏ lỡ', report.missed, Icons.lightbulb_outline),
-              _section(context, 'Bài tập cho lần sau', report.exercise, Icons.fitness_center_outlined),
-            ]
-          else
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      'Chưa tạo được nhận xét',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(report.note ?? 'không rõ lý do'),
-                    if (report.rawText != null) ...<Widget>[
-                      const SizedBox(height: 12),
-                      const Text('Phản hồi nguyên văn từ LLM:'),
-                      const SizedBox(height: 4),
-                      SelectableText(report.rawText!),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          if (report.truncated)
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: Text(
-                'Lưu ý: buổi nói dài nên chỉ phần CUỐI của transcript được phân tích.',
-              ),
-            ),
+          // P5.1: 3 mục báo cáo vẽ bởi widget dùng chung với màn hình xem lại từ Lịch sử.
+          ReportSections(report: report),
           const SizedBox(height: 8),
           Text(
             'Phân tích trên ${report.segmentCount} dòng transcript của buổi này'
@@ -96,27 +63,5 @@ class PostReviewScreen extends StatelessWidget {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${two(local.hour)}:${two(local.minute)} '
         '${two(local.day)}/${two(local.month)}';
-  }
-
-  Widget _section(BuildContext context, String title, String body, IconData icon) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Icon(icon),
-                const SizedBox(width: 8),
-                Text(title, style: Theme.of(context).textTheme.titleMedium),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SelectableText(body),
-          ],
-        ),
-      ),
-    );
   }
 }

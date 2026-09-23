@@ -3,6 +3,8 @@ import 'dart:async';
 import '../audio/asr/asr_engine.dart';
 import '../core/app_logger.dart';
 import '../core/constants.dart';
+import '../services/storage/meta_store.dart';
+import '../services/storage/retention_config.dart';
 import '../services/storage/transcript_dao.dart';
 import 'transcript_segment.dart';
 
@@ -75,17 +77,26 @@ class TranscriptStore {
     Duration? rollingWindow,
     Duration? resumeGap,
     Duration? retention,
+    ConfigStore? configStore,
   })  : _dao = dao ?? const SqliteTranscriptDao(),
         _now = now ?? DateTime.now,
         _rollingWindow = rollingWindow ?? StorageConfig.transcriptRollingWindow,
         _resumeGap = resumeGap ?? StorageConfig.transcriptResumeGap,
-        _retention = retention ?? StorageConfig.transcriptRetention;
+        _retention = retention ??
+            (configStore == null
+                ? StorageConfig.transcriptRetention
+                : null /* đọc từ cấu hình ở `_open()` — init là async, constructor không đợi được */),
+        _configStore = configStore;
+
+  static TranscriptStore? _instance;
 
   /// Bản dùng chung cho app (cùng kiểu với `AppDatabase.instance()`): `main()` gọi `init()` một lần
   /// lúc bootstrap, màn hình chính lấy lại đúng instance đó để `attach()` vào engine ASR.
-  static TranscriptStore? _instance;
-
-  static TranscriptStore instance() => _instance ??= TranscriptStore();
+  ///
+  /// P5.1: bản dùng chung đọc hạn tự xoá từ bảng `meta` (Settings) lúc `init()` — không đổi gì
+  /// với người dùng chưa từng vào Settings (resolver fallback về 7 ngày).
+  static TranscriptStore instance() =>
+      _instance ??= TranscriptStore(configStore: const MetaConfigStore());
 
   static const AppLogger _log = AppLogger('TranscriptStore');
 
@@ -93,7 +104,15 @@ class TranscriptStore {
   final DateTime Function() _now;
   final Duration _rollingWindow;
   final Duration _resumeGap;
-  final Duration _retention;
+
+  /// Hạn tự xoá. `null` nghĩa là "chưa biết — phải resolve từ [_configStore] ở `_open()`"
+  /// (P5.1: khi bản dùng chung được tạo với `configStore`). Khi tham số `retention` được truyền
+  /// trực tiếp (test/cleanup tuỳ chỉnh) thì giá trị ở đây là hạn cuối cùng, không qua resolver.
+  final Duration? _retention;
+
+  /// Nguồn cấu hình retention (P5.1). `null` khi caller truyền `retention` cứng (test) hoặc khi
+  /// dùng constructor mặc định không có `configStore` — khi đó fallback về hằng số mặc định.
+  final ConfigStore? _configStore;
 
   Future<void>? _initFuture;
   int? _sessionId;
@@ -144,10 +163,24 @@ class TranscriptStore {
   Future<void> _open() async {
     final DateTime now = _now();
 
-    final int removedSessions = await _dao.deleteOlderThan(now.subtract(_retention));
+    // P5.1: hạn tự xoá đọc từ cấu hình (Settings) nếu bản này được tạo với `configStore`;
+    // không thì giữ hạn được truyền trực tiếp, hoặc cuối cùng là mặc định 7 ngày (hành vi y hệt
+    // trước P5.1 — DoD "không đổi mặc định"). Lỗi đọc/parse do resolver tự nuốt, không ném ở đây.
+    final Duration retention;
+    final Duration? configured = _retention;
+    if (configured != null) {
+      retention = configured;
+    } else {
+      final ConfigStore? store = _configStore;
+      retention = store == null
+          ? StorageConfig.transcriptRetention
+          : await RetentionConfigResolver.resolve(store);
+    }
+
+    final int removedSessions = await _dao.deleteOlderThan(now.subtract(retention));
     if (removedSessions > 0) {
       _log.info(
-        'đã xoá $removedSessions phiên transcript cũ hơn ${_retention.inDays} ngày (quyền riêng tư)',
+        'đã xoá $removedSessions phiên transcript cũ hơn ${retention.inDays} ngày (quyền riêng tư)',
       );
     }
 

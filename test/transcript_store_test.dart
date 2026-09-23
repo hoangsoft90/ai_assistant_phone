@@ -28,6 +28,7 @@ class _FakeDao implements TranscriptDao {
   final List<TranscriptSession> sessions = <TranscriptSession>[];
   final Map<int, List<TranscriptSegment>> segments = <int, List<TranscriptSegment>>{};
   final Map<int, List<DateTime>> pushes = <int, List<DateTime>>{};
+  final Map<int, PostReviewReportRow> reports = <int, PostReviewReportRow>{};
 
   /// Mốc cutoff của lần `deleteOlderThan` gần nhất — để test khẳng định đúng hạn 7 ngày.
   DateTime? lastCutoff;
@@ -130,8 +131,45 @@ class _FakeDao implements TranscriptDao {
       sessions.removeWhere((TranscriptSession s) => s.id == session.id);
       segments.remove(session.id);
       pushes.remove(session.id);
+      reports.remove(session.id);
     }
     return old.length;
+  }
+
+  // P5.1: 3 methods mới của interface — bản giả gộp từ cùng map trong bộ nhớ.
+  @override
+  Future<List<TranscriptSession>> allSessions({int limit = 100}) async {
+    final List<TranscriptSession> sorted = List<TranscriptSession>.of(sessions)
+      ..sort((TranscriptSession a, TranscriptSession b) =>
+          b.lastActivityAt.compareTo(a.lastActivityAt));
+    return sorted.take(limit).toList();
+  }
+
+  @override
+  Future<PostReviewReportRow?> reportForSession(int sessionId) =>
+      Future<PostReviewReportRow?>.value(reports[sessionId]);
+
+  @override
+  Future<Set<int>> sessionIdsWithReport() => Future<Set<int>>.value(reports.keys.toSet());
+
+  @override
+  Future<void> renameSession(int sessionId, String? title) async {
+    final int index = sessions.indexWhere((TranscriptSession s) => s.id == sessionId);
+    if (index < 0) {
+      return;
+    }
+    final TranscriptSession old = sessions[index];
+    sessions[index] = TranscriptSession(
+      id: old.id,
+      startedAt: old.startedAt,
+      lastActivityAt: old.lastActivityAt,
+      title: title,
+    );
+  }
+
+  @override
+  Future<void> saveReport(int sessionId, PostReviewReportRow report) async {
+    reports[sessionId] = report;
   }
 }
 

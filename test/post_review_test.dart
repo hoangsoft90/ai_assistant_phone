@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_assistant_phone/coaching/post_review_service.dart';
 import 'package:ai_assistant_phone/coaching/pre_brief.dart';
 import 'package:ai_assistant_phone/services/storage/meta_store.dart';
+import 'package:ai_assistant_phone/services/storage/transcript_dao.dart';
 import 'package:ai_assistant_phone/suggestion/llm_provider.dart';
 import 'package:ai_assistant_phone/suggestion/suggestion_models.dart';
 import 'package:ai_assistant_phone/transcript/transcript_store.dart';
@@ -54,6 +55,11 @@ class _FakeTranscript implements TranscriptStore {
   );
   bool throwOnRead = false;
 
+  /// P5.1: `_persist` đọc `sessionId` để gắn báo cáo với phiên. Test có thể đổi để giả lập
+  /// "phiên chưa mở" (`null`).
+  @override
+  int? sessionId = 42;
+
   @override
   Future<SessionTranscript> sessionTranscript({int maxChars = 6000}) async {
     if (throwOnRead) {
@@ -67,22 +73,40 @@ class _FakeTranscript implements TranscriptStore {
       throw UnimplementedError('_FakeTranscript không hỗ trợ ${invocation.memberName}');
 }
 
+/// Bắt mọi lời lưu báo cáo — để test khoá đúng lúc nào được lưu / không lưu (P5.1).
+class _RecordingSink implements ReportSink {
+  final List<PostReviewReportRow> saved = <PostReviewReportRow>[];
+  Object? throwError;
+
+  @override
+  Future<void> save(PostReviewReportRow report) async {
+    final Object? error = throwError;
+    if (error != null) {
+      throw error;
+    }
+    saved.add(report);
+  }
+}
+
 void main() {
   late _FakeTextLlm llm;
   late _FakeTranscript transcript;
   late PreBriefStore preBriefs;
+  late _RecordingSink sink;
 
   PostReviewService build() => PostReviewService(
         provider: llm,
         transcript: transcript,
         preBriefs: preBriefs,
         now: () => DateTime(2026, 9, 23, 21, 0),
+        reportSink: sink,
       );
 
   setUp(() {
     llm = _FakeTextLlm();
     transcript = _FakeTranscript();
     preBriefs = PreBriefStore(store: _FakeConfigStore());
+    sink = _RecordingSink();
   });
 
   group('PostReviewService — báo cáo 3 mục', () {
@@ -224,6 +248,59 @@ void main() {
       await service.run();
       await service.run();
       expect(service.runCount, 2);
+    });
+  });
+
+  group('PostReviewService — lưu báo cáo để xem lại từ Lịch sử (P5.1)', () {
+    test('báo cáo dùng được ⇒ lưu đúng session_id + đủ 3 mục + số dòng/cắt', () async {
+      transcript.transcript = const SessionTranscript(
+        text: 'một\nhai\nba',
+        segmentCount: 3,
+        truncated: true,
+      );
+      llm.result = jsonEncode(<String, String>{
+        'good': 'g',
+        'missed': 'm',
+        'exercise': 'e',
+      });
+
+      await build().run();
+
+      expect(sink.saved, hasLength(1));
+      final PostReviewReportRow row = sink.saved.single;
+      expect(row.sessionId, 42);
+      expect(row.good, 'g');
+      expect(row.missed, 'm');
+      expect(row.exercise, 'e');
+      expect(row.segmentCount, 3);
+      expect(row.truncated, isTrue);
+      expect(row.generatedAt, DateTime(2026, 9, 23, 21, 0));
+    });
+
+    test('báo cáo KHÔNG dùng được (định dạng lạ) ⇒ KHÔNG lưu gì (chỉ gây nhiễu Lịch sử)', () async {
+      llm.result = 'Xin lỗi, tôi cần thêm thông tin.';
+      await build().run();
+      expect(sink.saved, isEmpty);
+    });
+
+    test('mất mạng (SuggestionException) ⇒ KHÔNG lưu', () async {
+      llm.throwError = const SuggestionException('chưa có API key Groq');
+      await build().run();
+      expect(sink.saved, isEmpty);
+    });
+
+    test('lỗi lưu DB ⇒ run() vẫn trả báo cáo bình thường, KHÔNG ném (ràng buộc prompt P5.1)', () async {
+      sink.throwError = StateError('đĩa đầy');
+      final PostReviewReport report = await build().run();
+      expect(report.isUsable, isTrue);
+      expect(report.good, 'a');
+    });
+
+    test('phiên transcript chưa mở (sessionId = null) ⇒ không lưu, không ném', () async {
+      transcript.sessionId = null;
+      final PostReviewReport report = await build().run();
+      expect(report.isUsable, isTrue);
+      expect(sink.saved, isEmpty);
     });
   });
 }

@@ -49,7 +49,9 @@ abstract final class AppDatabase {
       'value': DateTime.now().toIso8601String(),
     });
     await _createTranscriptSchema(db);
-    _log.info('đã tạo schema v$version (bảng meta + transcript)');
+    await _createPostReviewSchema(db);
+    await _addSessionTitleColumn(db);
+    _log.info('đã tạo schema v$version (bảng meta + transcript + post_review_reports + cột title)');
   }
 
   /// Migration từng bước. KHÔNG được xoá/tạo lại DB của người dùng: máy đã cài bản P0.5 sẽ có DB
@@ -59,6 +61,19 @@ abstract final class AppDatabase {
       // v1 -> v2 (P1E): thêm 3 bảng transcript. Bảng `meta` giữ nguyên, dữ liệu cũ không bị đụng.
       await _createTranscriptSchema(db);
       _log.info('migration v1 -> v2: đã tạo bảng transcript');
+    }
+    if (oldVersion < 3) {
+      // v2 -> v3 (P5.1): thêm bảng lưu báo cáo Post-Review (xem lại từ màn hình Lịch sử). Chỉ thêm
+      // bảng MỚI — dữ liệu v2 (meta + transcript) giữ nguyên. Nhánh `< 2` ở trên KHÔNG được sửa.
+      await _createPostReviewSchema(db);
+      _log.info('migration v2 -> v3: đã tạo bảng post_review_reports');
+    }
+    if (oldVersion < 4) {
+      // v3 -> v4 (P5.2): thêm cột `title` vào `transcript_sessions` (tên phiên người dùng đặt;
+      // `NULL` = chưa đặt tên ⇒ hiển thị sẽ sinh tên mặc định từ `started_at_ms`). Chỉ THÊM CỘT —
+      // dữ liệu phiên cũ giữ nguyên, không backfill. Các nhánh `< 2`/`< 3` ở trên KHÔNG được sửa.
+      await _addSessionTitleColumn(db);
+      _log.info('migration v3 -> v4: đã thêm cột title vào transcript_sessions');
     }
   }
 
@@ -103,6 +118,44 @@ abstract final class AppDatabase {
     await db.execute(
       'CREATE INDEX idx_transcript_pushes_session_ts '
       'ON transcript_pushes (session_id, timestamp_ms)',
+    );
+  }
+
+  /// Cột `title` của phiên (P5.2) — dùng chung cho `onCreate` (máy mới) và nhánh `oldVersion < 4`
+  /// để hai đường không bao giờ lệch nhau.
+  ///
+  /// **CỐ Ý KHÔNG** đặt `title` vào `_createTranscriptSchema`: helper đó còn được nhánh `< 2` gọi,
+  /// và khi đó nhánh `< 4` sẽ chạy `ALTER TABLE` lên bảng **vừa tạo đã có cột** ⇒ lỗi
+  /// "duplicate column name" (đường nâng cấp từ DB v1). Tách ALTER ra một chỗ duy nhất như dưới đây
+  /// bảo đảm MỌI đường (máy mới, v1/v2/v3 cũ) đều thêm cột đúng **một lần**.
+  static Future<void> _addSessionTitleColumn(Database db) async {
+    await db.execute('ALTER TABLE transcript_sessions ADD COLUMN title TEXT');
+  }
+
+  /// Schema báo cáo Post-Review (P5.1) — dùng chung cho `onCreate` (máy mới) và nhánh
+  /// `oldVersion < 3` (máy đã có v1/v2) để hai đường không bao giờ lệch nhau (cùng cách
+  /// `_createTranscriptSchema` đã làm cho P1E).
+  ///
+  /// Theo đúng convention schema đã chốt của repo: mốc thời gian = epoch milliseconds (INTEGER),
+  /// KHÔNG khai báo FOREIGN KEY (sqflite không bật `PRAGMA foreign_keys`), xoá theo phiên làm
+  /// tường minh trong transaction ở `TranscriptDao`.
+  ///
+  /// Chỉ lưu báo cáo **dùng được** (`isUsable == true` — đủ 3 mục, sinh từ LLM thành công). Các báo
+  /// cáo `unavailable` (mất mạng/chưa có transcript) không có giá trị xem lại — chỉ gây nhiễu Lịch sử.
+  static Future<void> _createPostReviewSchema(Database db) async {
+    await db.execute(
+      'CREATE TABLE post_review_reports ('
+      'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+      'session_id INTEGER NOT NULL, '
+      'generated_at_ms INTEGER NOT NULL, '
+      'good TEXT NOT NULL, '
+      'missed TEXT NOT NULL, '
+      'exercise TEXT NOT NULL, '
+      'segment_count INTEGER NOT NULL, '
+      'truncated INTEGER NOT NULL)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_post_review_reports_session ON post_review_reports (session_id)',
     );
   }
 }
