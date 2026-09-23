@@ -76,3 +76,25 @@ CHỈ cho lỗi JSON (cờ `retryable`), timeout/mất mạng fail ngay để gi
 - **GIVEN** LLM trả body không parse được
 - **WHEN** parser chạy
 - **THEN** KHÔNG ném xuyên tới UI; hệ thống thử lại đúng 1 lần cho lỗi JSON rồi trả `NO_SUGGESTION`
+
+### Requirement: Custom LLM endpoint/model (P2.1) — resolve mỗi lần gọi
+
+`GroqLlmProvider` **PHẢI (MUST)** nhận `ConfigStore? configStore`; khi có, endpoint + model được
+resolve **MỖI LẦN GỌI** qua `LlmProviderConfigResolver` (fallback an toàn về mặc định Groq khi
+chưa cấu hình/giá trị hỏng — không ném). Mọi service gọi LLM **PHẢI (MUST)** nhận/ truyền
+`ConfigStore` theo cùng một pattern — `PostReviewService`, `SuggestionService`, `TestLlmService`,
+`SessionSummaryService` (bổ sung follow-up P2.1) — để cấu hình tuỳ chỉnh có hiệu lực trên toàn
+bộ tính năng dùng LLM; KHÔNG có service nào âm thầm giữ endpoint mặc định Groq.
+
+#### Scenario: Tóm tắt phiên đi đúng endpoint tuỳ chỉnh
+
+- **GIVEN** user đã cấu hình endpoint + model tuỳ chỉnh trong Settings (bảng `meta`)
+- **WHEN** `SessionSummaryService.maybeRefresh` tóm tắt (không inject provider)
+- **THEN** request HTTP đi tới endpoint tuỳ chỉnh với model tuỳ chỉnh (bằng chứng: test mock
+  HTTP server cục bộ khoá path/model/auth-header), KHÔNG rơi silent về Groq
+
+#### Scenario: Chưa cấu hình gì
+
+- **GIVEN** bảng `meta` chưa có endpoint/model (hoặc giá trị hỏng)
+- **WHEN** bất kỳ service nào gọi LLM
+- **THEN** dùng mặc định Groq y hệt trước P2.1 (không đổi hành vi, không lỗi)

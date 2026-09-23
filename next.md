@@ -32,6 +32,7 @@ Cập nhật: 2026-09-23 chiều (+07). Nguồn: `.plan/production_roadmap.md`, 
 | 13c | **P5.1** Lịch sử phiên + lưu báo cáo + retention chỉnh được | 🟡 code xong — 343/343 test | Schema v3 (`post_review_reports`) + HistoryScreen + dropdown 3/7/14/30 (cleanup chạy ngay); tối ưu N+1 (2 query). Xem `.plan/P5_1-result.md` |
 | 13d | **P5.2** Tên phiên (mặc định timestamp, đổi được) | 🟡 code xong — 365/365 test | Schema v4 (cột `title`) — migration chứng minh trên SQLite thật; `SessionDisplayName` dùng chung. Xem `.plan/P5_2-result.md` |
 | 13e | **P5.3** Nav 4 tab + nút nổi toàn cục | 🟡 code xong — 373/373 test | `RootScaffold` (IndexedStack) + `GlobalFloatingControls` + `SessionCoordinator`; `home_screen.dart` thành shim; `floating_button.dart` 0 dòng bị đụng; **báo cáo `.plan/P5_3-result.md`** (15 dòng chẩn đoán giữ đủ) |
+| 13f | **issue1_fix** LLM config + session lifecycle + follow-up summary dùng custom LLM | 🟡 code xong — 399/399 test | Migration v5 (`ended_at_ms`), resume chỉ session chưa kết thúc trong 30′, Test-LLM trong Settings, key plaintext debug-only; **follow-up**: `SessionSummaryService` nhận `llmConfigStore?` — tóm tắt đi đúng endpoint/model tuỳ chỉnh (test mock HTTP server cục bộ). Xem `.plan/issue1_fix-result.md` |
 | 14 | **P6** Semi-auto Mode (tuỳ chọn) | ⬜ | Cần dùng thực địa ≥ 2 tuần. |
 | 15 | **P7** Production Hardening & Release | 🟡 phần tĩnh xong (audit, EthicsGate, R8 + CI release; signing chưa theo chốt user); nợ máy thật K51 | Xem `.plan/P7-result.md` + `RELEASE_NOTES.md` |
 

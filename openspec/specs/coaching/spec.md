@@ -34,7 +34,11 @@ kiện HOẶC, cả hai cấu hình được cho test), gọi KHÔNG `await` (kh
 GIỜ ném/chặn Push; lỗi ⇒ giữ bản cũ + `lastNote`, KHÔNG log nội dung. Mọi ghi trạng thái phải qua
 **token thế hệ** (cùng họ K45/A54) — kết quả tóm tắt bay về sau `reset()` KHÔNG được ghi vào phiên
 mới (lỗi H3 đã sửa); mốc refresh ghi theo lần ĐỒNG BỘ gần nhất, không theo lần thử (lỗi H1); số nudge
-đọc từ bộ đếm riêng, không từ `SessionMemory` trần 20 (lỗi H2).
+đọc từ bộ đếm riêng, không từ `SessionMemory` trần 20 (lỗi H2). Nguồn cấu hình LLM: khi caller
+không inject provider, service **PHẢI (MUST)** dựng `GroqLlmProvider(configStore: …)` từ store
+người dùng cung cấp (tham số `llmConfigStore`, cùng pattern PostReviewService/SuggestionService/
+TestLlmService — follow-up P2.1) ⇒ tóm tắt đi **đúng endpoint/model tuỳ chỉnh** đang có hiệu lực;
+`null` = mặc định Groq (y hệt trước P2.1).
 
 #### Scenario: LLM chậm trả sau khi phiên kết thúc
 

@@ -1,6 +1,6 @@
 # faq.md — Thắc mắc & hiểu sai thường gặp
 
-Cập nhật: 2026-09-23 chiều. Mỗi mục nêu câu trả lời + căn cứ (file/mục trong plan, hoặc số liệu đo được).
+Cập nhật: 2026-09-23 tối. Mỗi mục nêu câu trả lời + căn cứ (file/mục trong plan, hoặc số liệu đo được).
 
 **Q: P0 đã xong chưa?**
 Chưa. P0 **chưa hoàn thành**: 0/5 mục Definition of Done đạt, vì toàn bộ DoD là đo đạc trên điện thoại thật mà hiện chưa có thiết bị. Đã xong phần chuẩn bị không cần thiết bị. Căn cứ: `.plan/P0-result.md`.
@@ -56,6 +56,11 @@ không báo lỗi.
 Key **không đổi theo endpoint** (P2.1): app giữ đúng 1 key trong SecureStore. Quay lại Groq bằng nút
 "Khôi phục mặc định Groq"; nếu key trước đó là của OpenRouter thì phải nhập lại key Groq.
 
+**Q: Đã cấu hình endpoint tuỳ chỉnh thì tính năng nào của app đi qua nó?**
+Tất cả tính năng dùng LLM (sau follow-up P2.1): nudge Push, **tóm tắt phiên** (trước đây vẫn đi Groq
+mặc định — đã sửa), Post-Review và nút Test LLM trong Settings. Không còn service nào âm thầm dùng
+mặc định Groq khi user đã cấu hình endpoint khác.
+
 **Q: Xoá dữ liệu cũ theo retention có xoá luôn báo cáo Post-Review không?**
 Có (P5.1): `deleteOlderThan` xoá transcript + báo cáo trong **cùng một transaction** — báo cáo không
 sống lâu hơn transcript (tránh "báo cáo về một buổi không còn dữ liệu").
@@ -63,12 +68,14 @@ sống lâu hơn transcript (tránh "báo cáo về một buổi không còn d�
 **Q: Migration DB có làm mất dữ liệu transcript cũ không?**
 Không (đã chứng minh): v1→v4 và v3-có-dữ-liệu→v4 chạy trên SQLite thật — 0 dòng mất, `title` phiên cũ
 NULL (tên mặc định sinh lúc hiển thị). Nhánh migration cũ `< 2` giữ nguyên từng chữ, có test khoá.
+Nâng **v4→v5** (cột `ended_at_ms` — issue1_fix) thêm nhánh `< 5` mới, không đụng nhánh cũ; chưa chạy
+trên DB thật có sẵn — gộp K51.
 
 **Q: Chưa commit gì à? Có phải agent bỏ qua bước commit không?**
-Repo hiện **0 commit** và mọi thứ còn untracked. Tôi chủ động **không** commit vì cần bạn xác nhận trước (phần TTS thô thuộc vùng an toàn, và bài học từ plan yêu cầu không tự ký duyệt).
+Không còn. Từ 2026-09-21 repo đã có commit đều đặn (lần cuối: `9f678d2` docs đồng bộ openspec/checklist/next). Quy tắc vẫn giữ: phần **code** (đặc biệt vùng an toàn audio/DB) không tự commit khi thiếu xác nhận user; docs đồng bộ thì commit được. Vào thời điểm trước 2026-09-21 repo đúng là 0 commit — câu trả lời lúc đó đã lạc hậu.
 
 **Q: Sao `.plan/` không nằm trong git?**
-`.gitignore` của repo ignore `.plan`, nên `prompt_*.md`, `plan_final_v2.md` và cả báo cáo `.plan/P0-result.md` **không** được commit. Nếu muốn báo cáo vào git thì phải copy sang thư mục khác (chưa làm, đang chờ bạn quyết).
+`.gitignore` của repo ignore `.plan` (cùng `.agents/`, `TESTING.md`, `human.md`), nên `prompt_*.md`, `plan_final_v2.md` và mọi báo cáo `.plan/*-result.md` **không** được commit — chúng là nguồn spec thật nhưng chỉ tồn tại trên máy. Khi cần chia sẻ cho người/agent khác, **chép nội dung sang `.project/`** (thư mục này commit bình thường) thay vì nói "đọc `.plan/…`" trong tài liệu.
 
 **Q: Tại sao không cài Android SDK trên máy này?**
 Theo bạn chốt: build sẽ làm trên GitHub Actions. Hệ quả cần nhớ: **APK chưa từng được build**, và phần Kotlin chưa từng được biên dịch ở bất kỳ đâu.

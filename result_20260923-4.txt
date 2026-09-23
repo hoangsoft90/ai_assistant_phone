@@ -1,0 +1,46 @@
+# KẾT QUẢ BUỔI 2026-09-23 (4) — issue1_fix + follow-up SessionSummary custom-LLM
+
+> Bằng chứng cuối: `flutter analyze` **No issues found** · `flutter test` **399/399 All tests passed!**
+
+## 1. issue1_fix (theo `.plan/issue1_fix.md`) — đã xong ở phần trước của buổi
+- Migration v4→v5: cột `ended_at_ms` (nhánh `< 5` mới, nhánh cũ giữ nguyên từng chữ).
+- `TranscriptSession.endedAt/isFinished` + `TranscriptDao.markSessionEnded` + `TranscriptStore.markCurrentSessionEnded`.
+- Resume chỉ khi session **chưa kết thúc** + trong resumeGap 30′.
+- `TestLlmService` (request thật "Reply with exactly: OK", phân loại 401/404/timeout/network) + nút Test LLM trong Settings.
+- Message lỗi generic (bỏ hard-code "Groq"), key plaintext DEBUG-ONLY (đã comment mốc mask).
+- Báo cáo: `.plan/issue1_fix-result.md` · 396/396 test.
+
+## 2. Follow-up (yêu cầu mới trong buổi này)
+**Vấn đề:** `SessionSummaryService` tự dựng `GroqLlmProvider()` không `configStore` ⇒ tóm tắt phiên luôn đi endpoint/model mặc định Groq, bỏ qua custom LLM user đã cấu hình.
+
+**Sửa (minimal):**
+- `lib/coaching/session_summary.dart`: thêm tham số `ConfigStore? llmConfigStore` (doc comment giải thích); init `_provider = provider ?? (llmConfigStore == null ? GroqLlmProvider() : GroqLlmProvider(configStore: llmConfigStore))` — cùng pattern PostReviewService/SuggestionService/TestLlmService.
+- Không đổi prompt tóm tắt, không đổi nhịp refresh, không đụng session lifecycle.
+- Chuỗi khởi tạo trong app đã kiểm: `SessionCoordinator` → `MetaConfigStore()` → `ConversationSessionController` → `TriggerManager` → `SuggestionService` → summary **đã** nhận provider có configStore từ P2.1; tham số mới vá đúng chỗ hở (dựng `SessionSummaryService()` trực tiếp không store).
+
+**Test mới** `test/session_summary_llm_config_test.dart` (3 test):
+1. Config custom ⇒ request tóm tắt đi ĐÚNG endpoint + model + header `Bearer` (mock **HTTP server cục bộ** 127.0.0.1 vì provider tự dựng bên trong, không inject client được; key bơm qua stub kênh `flutter_secure_storage`; phải override `HttpOverrides` vì TestWidgetsFlutterBinding chặn HTTP trả 400).
+2. Không truyền store ⇒ hành vi cũ giữ nguyên (transcript rỗng ⇒ không request nào rời máy — smoke không gọi mạng thật).
+3. Prompt tóm tắt giữ nguyên văn.
+
+## 3. Verify
+```
+flutter analyze → No issues found!
+flutter test    → 399/399 All tests passed!
+openspec validate --all → 18 passed, 0 failed
+```
+
+## 4. Docs đã đồng bộ
+- `openspec/specs/suggestion-engine/spec.md`: +Requirement "Custom LLM endpoint/model (P2.1) — resolve mỗi lần gọi" (liệt kê 4 service, KHÔNG service nào âm thầm giữ Groq) + 2 scenario.
+- `openspec/specs/coaching/spec.md`: requirement "Tóm tắt định kỳ" bổ sung nguồn cấu hình LLM.
+- `next.md`: +hàng 13f (issue1_fix + follow-up, 399/399).
+- `features.md`: cập nhật ngày + trạng thái tính năng 14 (custom LLM phủ cả tóm tắt).
+- `faq.md`: +2 mục (tính năng nào đi qua endpoint tuỳ chỉnh; migration v5).
+- `checklist.md`: +buổi tối (đã làm / chưa làm / cần hỏi lại).
+- `LESSONS_LEARNED.md`: +A65/A66 (xem handoff).
+- `working.md`: nhật ký buổi.
+
+## 5. Còn lại
+- **Chưa commit** — chờ user ra lệnh (lô gồm issue1_fix + follow-up + docs; TESTING.md/human.md vẫn local-only).
+- **Chưa verify máy thật** (K51): migration v4→v5 trên DB có sẵn, endpoint thật, Test LLM, nav 4 tab, HistoryScreen.
+- SessionSummaryService: bài học A65/A66 từ vòng sửa test file (main() dính comment, HttpOverrides abstract, TestWidgetsFlutterBinding chặn HTTP) — đã ghi LESSONS_LEARNED.md.

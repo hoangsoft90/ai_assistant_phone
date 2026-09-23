@@ -412,8 +412,17 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [x] **`.project/openspec.md` đã đồng bộ (2026-09-23):** (a) **thêm 4 hàng** `P2.1`/`P5.1`/`P5.2`/`P5.3` vào bảng phase (trước dừng ở P5→P6); (b) **`K50` gạch bỏ tiêu đề cũ + ghi rõ đã thu hẹp ở P5.1** — đã persist báo cáo (`post_review_reports`); (c) **hàng `P7` từ `⬜` → `🟡 phần tĩnh xong`** (khớp `next.md` + K51 trong chính file). Header "sau P5" → "sau P5.3".
 - [x] **Bổ sung báo cáo còn thiếu `.plan/P5_3-result.md`** — rà `.plan/`: 18/19 prompt phase có file kết quả; **chỉ thiếu `P6-result.md`, đúng thiết kế** (P6 tuỳ chọn, cần dùng thực địa ≥ 2 tuần, cố ý bỏ để sang P7). Số liệu chạy lại tươi: **373/373 test**, analyze sạch, `floating_button.dart` **0 dòng bị đụng**, 15 dòng chẩn đoán giữ đủ (prompt ghi "13" là ước lượng). Đồng bộ luôn `next.md` (bảng 13e + mục "Việc sắp tới" đã đánh dấu việc commit/push là xong).
 
+## Buổi 2026-09-23 (tối, sau `9f678d2`) — issue1_fix + follow-up SessionSummary custom-LLM
+
+### Đã làm
+
+- [x] **issue1_fix** (theo `.plan/issue1_fix.md`): migration v4→v5 (`ended_at_ms`, nhánh `< 5` mới, nhánh cũ giữ nguyên), resume chỉ session chưa kết thúc trong 30′, `TestLlmService` + nút Test LLM, key plaintext debug-only, message lỗi generic. **396/396 test; báo cáo `.plan/issue1_fix-result.md`**.
+- [x] **Follow-up**: `SessionSummaryService` nhận `llmConfigStore?` (cùng pattern 3 service kia) — tóm tắt phiên giờ đi đúng endpoint/model tuỳ chỉnh; test mới dùng **mock HTTP server cục bộ** khoá path/model/auth-header (không fallback silent về Groq); prompt tóm tắt + nhịp refresh giữ nguyên. **399/399 test, analyze sạch**.
+- [x] Đồng bộ spec OpenSpec (`coaching` + `suggestion-engine` — validate 18/18), `features.md`, `next.md` (13f), `faq.md` (+2 mục).
+
 ### Chưa làm / cần hỏi lại (cập nhật buổi này)
 
+- [ ] **Chưa commit** lô này (issue1_fix + follow-up + docs) — chờ user ra lệnh.
 - [ ] ⚠ **Chưa verify trên máy thật** các phần P2.1/P5.1/P5.2/P5.3 (migration DB có sẵn, đổi tên phiên, retention, cấu hình LLM endpoint, nav 4 tab) — gộp K51, cần APK mới từ CI.
 - [ ] **K50 nay thu hẹp:** Post-Review **đã** persist (P5.1) — nợ còn lại chỉ là "xem lại báo cáo từ Lịch sử trên máy thật".
 - [ ] Hỏi lại: có giữ `human.md`/`TESTING.md` local-only (không commit) như hiện tại không? (hiện 2 file này ở ngoài git theo `.gitignore` custom).

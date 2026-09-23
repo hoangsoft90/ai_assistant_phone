@@ -1,6 +1,6 @@
 # features.md — Trợ lý AI hỗ trợ giao tiếp realtime (Android, cá nhân)
 
-Cập nhật: 2026-09-23 (sau P7 + các phase bổ sung P2.1/P5.1/P5.2/P5.3). Nguồn: `.plan/plan_final_v2.md` (mục 1, 4, 5) + `.plan/production_roadmap.md` + `.plan/*-result.md`.
+Cập nhật: 2026-09-23 tối (sau P7 + P2.1/P5.1/P5.2/P5.3 + follow-up SessionSummary custom-LLM + buổi đồng bộ docs; commit `9f678d2`). Nguồn: `.plan/plan_final_v2.md` (mục 1, 4, 5) + `.plan/production_roadmap.md` + `.plan/*-result.md` + `.plan/ADB-TEST-result.md` + `.plan/issue1_fix-result.md`.
 
 ## Định nghĩa sản phẩm (mục 1.1)
 
@@ -24,15 +24,15 @@ App Android cá nhân, **nghe cuộc trò chuyện realtime và đưa gợi ý n
 | 3 | ASR PhoWhisper (chính) | P1C | ✅ đã chạy thật | Transcript thật tiếng Việt vào DB |
 | 4 | ASR Vosk (dự phòng) + selector + đổi engine an toàn | P1D + sửa bug | ✅ đã chạy thật | T9 đạt cả 2 chiều |
 | 5 | Transcript store + khôi phục sau kill | P1E | ✅ đã chạy thật | 4 segments qua force-stop |
-| 6 | SafeTtsOutput (chỉ tai nghe, silent fallback + rung) | P1F | ⚠ code xong | TC2 đạt; TC1/TC3 chờ human |
-| 7 | Emergency Phrase (giữ 2s, 100% local) | P1G | ⚠ code xong | User xác nhận nghe qua tai nghe; test đầy đủ chờ human |
+| 6 | SafeTtsOutput (chỉ tai nghe, silent fallback + rung) | P1F | ⚠ code xong | Phát đầu-cuối + mất-tai-nghe ✅ (máy, 22/09); TC1/TC3 chờ human |
+| 7 | Emergency Phrase (giữ 2s, 100% local) | P1G | ⚠ code xong | User xác nhận nghe qua tai nghe (22/09); đầy đủ chờ K51 |
 | 8 | Suggestion Engine (Groq) + policy + Nudge/Emergency/Output Mode | P2/P3 | ⚠ code xong | Cần nhập Groq key trên máy |
 | 9 | Half-duplex + chống race TTS/ASR + recovery | P4 | ⚠ code xong | K45 cần nghe thật |
 | 10 | Pre-Brief + Session Summary + Post-Review + Training Level + Thống kê tuần | P5 | ⚠ code xong | K48 chưa verify máy |
 | 11 | Lịch sử phiên + lưu/xem lại báo cáo + retention chỉnh được (3/7/14/30) | P5.1 | ⚠ code xong | Migration v2→v3 chờ máy; tối ưu N+1 (2 query) |
 | 12 | Đặt tên phiên (mặc định theo timestamp, đổi tên được) | P5.2 | ⚠ code xong | Migration v3→v4 chứng minh trên SQLite thật |
 | 13 | UI 4 tab (Trang chủ/Lịch sử/Thống kê/Cài đặt) + nút nổi toàn cục | P5.3 | ⚠ code xong | Nav + floating controls có 7 test widget |
-| 14 | Custom LLM Provider (endpoint/model tuỳ chỉnh, khôi phục Groq) | P2.1 | ⚠ code xong | Cần endpoint thật trên máy (human.md Việc 8) |
+| 14 | Custom LLM Provider (endpoint/model tuỳ chỉnh, khôi phục Groq) | P2.1 | ⚠ code xong | Cần endpoint thật trên máy (human.md Việc 8); **follow-up đã sửa**: tóm tắt phiên giờ cũng đi endpoint tuỳ chỉnh (trước chỉ Post-Review/Suggestion/Test) |
 | 15 | Production hardening (R8/minify, quy tắc riêng tư, release notes) | P7 | ✅ build CI xanh | APK debug-signed; signing thật chưa làm (chốt với user) |
 | 16 | Semi-auto Mode | P6 | ❌ chưa làm | Tuỳ chọn, không bắt buộc |
 

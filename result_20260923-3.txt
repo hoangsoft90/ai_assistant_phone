@@ -1,0 +1,62 @@
+# KẾT QUẢ BUỔI 2026-09-23 (TỐI) — Bổ sung báo cáo P5.3 + rà .plan/ + đồng bộ tài liệu + commit/push
+
+> Tiếp nối `result_20260923-2.txt` (buổi chiều). Buổi này **0 dòng code sản phẩm** — toàn bộ docs.
+
+## Việc 1 — Phát hiện & bổ sung báo cáo còn thiếu `.plan/P5_3-result.md`
+
+User hỏi "P5.3 làm xong chưa mà chưa thấy ghi kết quả?" ⇒ kiểm: **code P5.3 xong + đã vào commit
+`9a1d55a`, nhưng file kết quả bị bỏ sót**. Đã viết `.plan/P5_3-result.md` (112 dòng, format
+`P5_2-result.md`) — mọi số liệu chạy lại tươi chứ không chép báo cáo cũ:
+
+- `flutter analyze` → No issues found · `flutter test` → **373/373 All tests passed!**
+- `p5_3_navigation_test.dart` → 7 test · `git diff 4c699f6..HEAD --name-only | grep -c floating_button` → **0**
+- Đối chiếu nhãn `_infoRow` trước/sau tách: bản cũ (`4c699f6`) **15 dòng** ⇒ `home_tab` mới giữ đủ
+  **15** (4 card rút gọn + 11 ExpansionTile), 0 dòng mất. (Prompt ghi "13" là ước lượng.)
+
+## Việc 2 — Rà toàn bộ `.plan/` (user ra lệnh)
+
+19 `prompt_*.md` · 18 có `*-result.md`. **Chỉ thiếu `P6-result.md` — đúng thiết kế** (P6 Semi-auto
+tuỳ chọn, precondition "dùng thực địa ≥ 2 tuần", user chốt bỏ để sang P7; `features.md`/`next.md`/
+`.project/openspec.md` đều ghi "chưa làm"). Không phase nào làm xong mà thiếu báo cáo.
+
+## Việc 3 — Đồng bộ tài liệu (checklist.md + next.md theo lệnh; mở rộng khi được phép)
+
+- `next.md`: bảng 13e `372→373` + thêm `.plan/P5_3-result.md`; "Việc sắp tới #0" (tách commit+push)
+  từ todo → ✅ xong với 5 commit tới `9259082`; header "Nguồn" bổ sung.
+- `checklist.md`: xác nhận push (`main == origin/main`); ghi kết quả rà `.plan/`; sau đó ghi tiếp
+  việc đồng bộ openspec.
+- **`.project/openspec.md`** (user ra lệnh riêng): thêm 4 hàng phase `P2.1/P5.1/P5.2/P5.3` (trước
+  dừng ở P5→P6); `K50` gạch bỏ — đã thu hẹp ở P5.1 (persist `post_review_reports`); hàng `P7` từ
+  `⬜` → `🟡 phần tĩnh xong` (mâu thuẫn với chính K51 trong file); header "sau P5" → "sau P5.3".
+  Đã kiểm số cột bảng (mọi hàng phase = 4 dấu `|`, hàng K = 5) — lần đầu chèn 3 hàng mới bị thừa
+  cột, tự phát hiện và sửa.
+- `.project/modules/bootstrap-shell.md`: viết lại theo kiến trúc P5.3 (RootScaffold thay HomeScreen;
+  `main.dart` `home: RootScaffold()`; bảng file UI mới; trạng thái adb 2026-09-23) — module cũ mô
+  tả `HomeScreen` đã không còn đúng.
+- `features.md`: đổi ngày cập nhật; nêu rõ bằng chứng máy thật của P1F/P1G (22/09).
+- `faq.md`: sửa 2 mục đã lỗi thời — "repo 0 commit" (giờ `9f678d2`) và "`.plan/` ngoài git ⇒ copy
+  sang `docs/` chờ quyết" (quy ước hiện hành: chép sang `.project/` khi cần chia sẻ).
+
+## Việc 4 — Commit + push (user ra lệnh)
+
+- Commit `9f678d2` `docs: đồng bộ openspec/checklist/next sau nhóm P2.1 + P5.1–P5.3` (4 file:
+  openspec.md, checklist.md, next.md, working.md; +23/−10). TESTING.md + human.md giữ local-only.
+- Push `9259082..9f678d2 main` ✅. Secret scan diff sạch (các match chỉ là từ khoá docs).
+- **CI:** run cũ `35867829942` (`9259082`) → **success**, artifact `app-debug-apk` 114 MB (chưa hết
+  hạn); run mới `35879450819` (`9f678d2`) → in_progress lúc ghi file này. Commit là docs-only ⇒
+  **APK code-y hệt run cũ** — cài ngay được cho K51 mà không cần chờ.
+
+## Việc 5 — Nhận diện lỗi tự sửa-sai để đóng gói skill (user hỏi)
+
+Các lỗi lặp lại đã rút ra trong phiên (đầy đủ ở `working.md` + `LESSONS_LEARNED.md` A60/A61):
+
+1. **Để sót sản phẩm bàn giao** (báo cáo P5.3) — hoàn thành code nhưng quên artifact báo cáo.
+2. **Số liệu báo cáo viết theo vòng chạy cũ** (372 vs 373) — không chạy lại tươi trước khi ghi.
+3. **Chèn bảng markdown lệch cột** (3 hàng mới thừa cột) — không kiểm số `|` sau khi chèn.
+4. **Sửa file rồi để mục sai khu vực** ([x] nằm trong "Chưa làm") — không đọc lại ngữ cảnh mục.
+
+## Trạng thái cuối buổi
+
+- Test: 373/373 pass · analyze sạch · openspec validate 18/18.
+- Git: `main == origin/main` tại `9f678d2`; CI docs-only đang chạy (không đổi APK).
+- Kế tiếp: cài APK run `35867829942` (hoặc run mới khi xanh) ⇒ buổi test K51 theo `human.md`.
