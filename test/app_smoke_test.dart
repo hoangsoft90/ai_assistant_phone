@@ -5,7 +5,6 @@
 // Logic thật (service, DB, quyền) phải được kiểm trên thiết bị — xem README.md ở gốc repo.
 
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart' show Scrollable;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ai_assistant_phone/coaching/ethics_gate.dart';
@@ -63,16 +62,30 @@ void main() {
     expect(EthicsGate.hasShown, isTrue);
 
     expect(find.text('Trợ lý giao tiếp'), findsOneWidget);
-    expect(find.text('Bật lắng nghe'), findsOneWidget);
+    // P5.3: nút điều khiển phiên là NỔI TOÀN CỤC (GlobalFloatingControls) — FAB dạng ICON có
+    // tooltip "Bật lắng nghe" (text label của bản cũ không còn, đúng thiết kế).
+    expect(find.byTooltip('Bật lắng nghe'), findsOneWidget);
     expect(find.text('Sẵn sàng'), findsOneWidget);
-    // Từ P1G màn hình có thêm nút Emergency + 1 dòng trạng thái ⇒ card trạng thái dài hơn viewport
-    // và ListView dựng lazily — phải CUỘN tới các dòng trạng thái thay vì giả định chúng hiển thị sẵn.
-    await tester.scrollUntilVisible(find.text('chưa ghi'), 120, scrollable: find.byType(Scrollable).first);
-    await tester.pump();
+    // P5.3: 4 tab bottom-nav hiển thị đủ.
+    expect(find.text('Trang chủ'), findsOneWidget);
+    expect(find.text('Lịch sử'), findsOneWidget);
+    expect(find.text('Thống kê'), findsOneWidget);
+    expect(find.text('Cài đặt'), findsOneWidget);
+    // 13 dòng chẩn đoán P0.5→P5.2 KHÔNG bị xoá — gom vào "Chi tiết kỹ thuật" (ExpansionTile mặc
+    // định ĐÓNG ⇒ các dòng chẩn đoán KHÔNG có trong cây trước khi mở — probe kiểm chứng 0 → 1).
+    expect(find.text('Chi tiết kỹ thuật'), findsOneWidget);
+    expect(find.text('chưa ghi'), findsNothing,
+        reason: 'ExpansionTile mặc định đóng — dòng chẩn đoán chưa dựng');
+    await tester.tap(find.text('Chi tiết kỹ thuật'));
+    await tester.pumpAndSettle();
+    // Sau khi mở: đủ dòng chẩn đoán trọng yếu (P1A capture / P1B VAD / P1F TTS) — chứng minh
+    // KHÔNG xoá dòng nào khi gom vào khu thu gọn (constraint của prompt P5.3).
     expect(find.text('chưa ghi'), findsOneWidget); // trạng thái capture ban đầu (P1A)
-    await tester.scrollUntilVisible(find.text('chưa nghe'), 120, scrollable: find.byType(Scrollable).first);
-    await tester.pump();
     expect(find.text('chưa nghe'), findsOneWidget); // trạng thái VAD ban đầu (P1B)
+    expect(
+      find.textContaining('không thấy thiết bị riêng tư nào'),
+      findsOneWidget,
+    ); // trạng thái TTS (P1F)
   });
 
   // P7 review: `barrierDismissible: false` KHÔNG chặn được nút back hệ thống. Nếu nút back cũng
