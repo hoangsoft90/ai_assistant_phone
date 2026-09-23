@@ -76,7 +76,9 @@ class SettingsTab extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: busy ? null : () => coordinator.editApiKey(context),
                 icon: const Icon(Icons.key_outlined),
-                label: const Text('Nhập API key LLM (Groq)'),
+                // issue1_fix mục 2: label GENERIC — key là của cấu hình LLM hiện tại (endpoint tuỳ
+                // ý), không phải "Groq key". (Trạng thái key vẫn hiện ở dòng chẩn đoán API key.)
+                label: const Text('Nhập API key LLM'),
               ),
               const SizedBox(height: 8),
               // P2.1: cấu hình endpoint/model cho provider OpenAI-compatible; để trống = Groq mặc định.
@@ -84,6 +86,18 @@ class SettingsTab extends StatelessWidget {
                 onPressed: busy ? null : () => coordinator.editLlmConfig(context),
                 icon: const Icon(Icons.dns_outlined),
                 label: const Text('Cấu hình LLM Endpoint/Model (P2.1)'),
+              ),
+              // issue1_fix mục 4: Test LLM — request thật tối thiểu, không đụng phiên.
+              OutlinedButton.icon(
+                onPressed: coordinator.testingLlm ? null : coordinator.testLlm,
+                icon: coordinator.testingLlm
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.network_check),
+                label: Text(coordinator.testingLlm ? 'Testing...' : 'Test LLM'),
               ),
               OutlinedButton.icon(
                 onPressed: busy ? null : coordinator.resetLlmConfig,

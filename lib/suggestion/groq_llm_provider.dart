@@ -83,22 +83,29 @@ class GroqLlmProvider implements LlmProvider, TextLlmProvider {
   }) async {
     final String? apiKey = await _apiKeyReader();
     if (apiKey == null || apiKey.isEmpty) {
-      throw const SuggestionException('chưa có API key Groq (lưu qua SecureStore)');
+      // issue1_fix mục 2: message GENERIC — key là credential của cấu hình LLM hiện tại, không phải
+      // "Groq key". Khi đang dùng custom endpoint mà báo "Groq" là gây hiểu nhầm (bug thật đã gặp:
+      // Post-Review báo thiếu key Groq dù user cấu hình endpoint riêng xong). Chỉ giữ chữ "Groq" khi
+      // endpoint đang là mặc định Groq.
+      final Uri currentEndpoint = await _currentEndpoint();
+      final bool usingDefaultGroq =
+          currentEndpoint.toString() == SuggestionConfig.groqEndpoint;
+      throw SuggestionException(
+        usingDefaultGroq
+            ? 'chưa có API key Groq (lưu qua SecureStore)'
+            : 'Chưa cấu hình API key cho LLM hiện tại (lưu qua SecureStore)',
+      );
     }
 
     // P2.1: endpoint/model hiện hành — đọc cấu hình mỗi lần gọi khi có `configStore` (không cache);
     // không có thì dùng đúng giá trị constructor như trước. Cấu hình hỏng ⇒ resolver trả mặc định
     // Groq, không ném. Body/parse/error-handling bên dưới KHÔNG đổi (constraint P2.1).
-    final Uri endpoint;
+    final Uri endpoint = await _currentEndpoint();
     final String model;
-    final ConfigStore? store = configStore;
-    if (store == null) {
-      endpoint = _endpoint;
+    if (configStore == null) {
       model = this.model;
     } else {
-      final ResolvedLlmConfig resolved = await LlmProviderConfigResolver.resolve(store);
-      endpoint = resolved.endpoint;
-      model = resolved.model;
+      model = await LlmProviderConfigResolver.readModel(configStore!);
     }
 
     final Map<String, Object?> body = <String, Object?>{
@@ -132,7 +139,14 @@ class GroqLlmProvider implements LlmProvider, TextLlmProvider {
     }
 
     if (response.statusCode != 200) {
-      throw SuggestionException('LLM trả về HTTP ${response.statusCode}');
+      // issue1_fix mục 2: kèm endpoint host + status để user tự phân loại (auth sai / model sai /
+      // endpoint sai) mà không lộ key (chỉ host, không path query). Không crash — vẫn là
+      // [SuggestionException] như hợp đồng.
+      throw SuggestionException(
+        'LLM trả về HTTP ${response.statusCode} (${endpoint.host})'
+        '${response.statusCode == 401 || response.statusCode == 403 ? ' — key không hợp lệ cho endpoint này' : ''}'
+        '${response.statusCode == 404 ? ' — endpoint hoặc model không tồn tại' : ''}',
+      );
     }
 
     final Object? decoded;
@@ -159,5 +173,14 @@ class GroqLlmProvider implements LlmProvider, TextLlmProvider {
       throw const SuggestionException('phản hồi LLM thiếu nội dung');
     }
     return text;
+  }
+
+  /// Endpoint hiện hành — constructor nếu không có `configStore`, đọc từ config nếu có.
+  Future<Uri> _currentEndpoint() async {
+    final ConfigStore? store = configStore;
+    if (store == null) {
+      return _endpoint;
+    }
+    return LlmProviderConfigResolver.readEndpoint(store);
   }
 }

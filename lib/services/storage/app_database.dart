@@ -51,7 +51,8 @@ abstract final class AppDatabase {
     await _createTranscriptSchema(db);
     await _createPostReviewSchema(db);
     await _addSessionTitleColumn(db);
-    _log.info('đã tạo schema v$version (bảng meta + transcript + post_review_reports + cột title)');
+    await _addSessionEndedColumn(db);
+    _log.info('đã tạo schema v$version (meta + transcript + post_review_reports + cột title + cột ended_at)');
   }
 
   /// Migration từng bước. KHÔNG được xoá/tạo lại DB của người dùng: máy đã cài bản P0.5 sẽ có DB
@@ -74,6 +75,17 @@ abstract final class AppDatabase {
       // dữ liệu phiên cũ giữ nguyên, không backfill. Các nhánh `< 2`/`< 3` ở trên KHÔNG được sửa.
       await _addSessionTitleColumn(db);
       _log.info('migration v3 -> v4: đã thêm cột title vào transcript_sessions');
+    }
+    if (oldVersion < 5) {
+      // v4 -> v5 (issue1_fix): thêm cột `ended_at_ms` vào `transcript_sessions` — phân biệt
+      // **kết-thúc-chủ-động** (người dùng bấm "Kết thúc buổi") với "chỉ hết hoạt động". Phiên đã có
+      // `ended_at_ms` không được resume lại (ngược lại thì Start mới sau 30 phút vẫn nối tiếp phiên
+      // cũ ⇒ transcript lẫn + báo cáo Post-Review bị ghi đè nhầm phiên). Chỉ THÊM CỘT — dữ liệu cũ
+      // giữ nguyên, `NULL` = chưa kết thúc chủ động (phiên cũ trước bản này coi như "chưa kết thúc" —
+      // hành vi resume như trước, không mất khả năng crash-recovery cho phiên đang dở thật).
+      // Các nhánh `< 2`/`< 3`/`< 4` ở trên KHÔNG được sửa.
+      await _addSessionEndedColumn(db);
+      _log.info('migration v4 -> v5: đã thêm cột ended_at_ms vào transcript_sessions');
     }
   }
 
@@ -130,6 +142,16 @@ abstract final class AppDatabase {
   /// bảo đảm MỌI đường (máy mới, v1/v2/v3 cũ) đều thêm cột đúng **một lần**.
   static Future<void> _addSessionTitleColumn(Database db) async {
     await db.execute('ALTER TABLE transcript_sessions ADD COLUMN title TEXT');
+  }
+
+  /// Cột `ended_at_ms` của phiên (issue1_fix) — dùng chung cho `onCreate` (máy mới) và nhánh
+  /// `oldVersion < 5` để hai đường không bao giờ lệch nhau.
+  ///
+  /// **CỐ Ý KHÔNG** đặt vào `_createTranscriptSchema`: helper đó còn được nhánh `< 2` gọi ⇒ sẽ
+  /// `duplicate column name` khi nâng từ DB v1 (cùng lý do `title` ở P5.2 đã tách riêng). `NULL` =
+  /// chưa kết thúc chủ động (phiên crash/đang dở — được resume theo `resumeGap` như cũ).
+  static Future<void> _addSessionEndedColumn(Database db) async {
+    await db.execute('ALTER TABLE transcript_sessions ADD COLUMN ended_at_ms INTEGER');
   }
 
   /// Schema báo cáo Post-Review (P5.1) — dùng chung cho `onCreate` (máy mới) và nhánh

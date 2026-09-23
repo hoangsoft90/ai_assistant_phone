@@ -185,7 +185,12 @@ class TranscriptStore {
     }
 
     final TranscriptSession? latest = await _dao.latestSession();
-    if (latest != null && now.difference(latest.lastActivityAt) <= _resumeGap) {
+    // issue1_fix mục 6: chỉ resume khi (1) còn trong resumeGap **VÀ** (2) phiên chưa kết thúc chủ
+    // động. Điều kiện (2) là mới: trước đây phiên người dùng bấm "Kết thúc buổi" vẫn bị resume nếu
+    // Start lại trong 30 phút ⇒ transcript lẫn vào phiên cũ + báo cáo Post-Review ghi đè nhầm.
+    if (latest != null &&
+        !latest.isFinished &&
+        now.difference(latest.lastActivityAt) <= _resumeGap) {
       // Khôi phục phiên đang dở: app bị OS kill giữa chừng thì mở lại vẫn còn dữ liệu đã ghi.
       _sessionId = latest.id;
       final List<TranscriptSegment> restored =
@@ -331,6 +336,25 @@ class TranscriptStore {
       segmentCount: segments.length,
       truncated: true,
     );
+  }
+
+  /// Đánh dấu phiên hiện tại đã kết thúc **chủ động** (issue1_fix mục 6) — gọi trong
+  /// `finishSessionAndReview` SAU khi `stop()` phiên và TRƯỚC khi Post-Review chạy.
+  ///
+  /// Ghi mốc `ended_at` xuống đĩa ⇒ lần `_open()` kế tiếp (Start mới / mở lại app) sẽ **không bao
+  /// giờ** resume phiên này, dù còn trong `resumeGap`. Không ném: lỗi DB chỉ được log — việc đánh
+  /// dấu thất bại không được chặn Post-Review (vẫn tốt hơn Crash-recovery sai phiên).
+  /// Phiên chưa mở (`_sessionId == null`) ⇒ vô hại.
+  Future<void> markCurrentSessionEnded() async {
+    final int? sessionId = _sessionId;
+    if (sessionId == null) {
+      return;
+    }
+    try {
+      await _dao.markSessionEnded(sessionId, _now());
+    } catch (error, stackTrace) {
+      _log.error('không đánh dấu được kết thúc phiên #$sessionId', error, stackTrace);
+    }
   }
 
   /// Hủy lắng nghe và chờ hết các lần ghi đang dở (gọi khi app/màn hình kết thúc).

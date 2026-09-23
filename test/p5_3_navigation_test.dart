@@ -253,8 +253,10 @@ void main() {
     expect(find.text('Nhận dạng (ASR)'), findsOneWidget);
     await scrollTo(tester, find.text('Gợi ý (LLM)'));
     expect(find.text('Gợi ý (LLM)'), findsOneWidget);
-    expect(find.text('Nhập API key LLM (Groq)'), findsOneWidget);
+    // issue1_fix: label đổi thành GENERIC (key là của cấu hình LLM hiện tại) + thêm nút Test LLM.
+    expect(find.text('Nhập API key LLM'), findsOneWidget);
     expect(find.text('Cấu hình LLM Endpoint/Model (P2.1)'), findsOneWidget);
+    expect(find.text('Test LLM'), findsOneWidget);
     expect(find.text('Khôi phục mặc định Groq'), findsOneWidget);
     await scrollTo(tester, find.text('Huấn luyện (P5)'));
     expect(find.text('Huấn luyện (P5)'), findsOneWidget);

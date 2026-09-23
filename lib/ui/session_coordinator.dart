@@ -29,6 +29,7 @@ import '../services/storage/retention_config.dart';
 import '../services/storage/secure_store.dart';
 import '../suggestion/llm_provider_config.dart';
 import '../suggestion/suggestion_models.dart';
+import '../suggestion/test_llm_service.dart';
 import '../transcript/transcript_store.dart';
 import '../trigger/trigger_manager.dart';
 import 'post_review_screen.dart';
@@ -120,6 +121,15 @@ class SessionCoordinator extends ChangeNotifier {
   ResolvedLlmConfig? _llmConfig;
   bool? _hasApiKey;
 
+  /// issue1_fix mục 3: giá trị RAW đã lưu của cấu hình LLM (để dialog hiện đúng giá trị persisted,
+  /// kể cả khi resolver đã fallback về mặc định vì giá trị hỏng). `null` = chưa đọc xong.
+  /// Endpoint/model không nhạy cảm (meta); key đọc riêng từ SecureStore mỗi lần mở dialog.
+  ({String? url, String? model})? _rawLlmConfig;
+
+  /// issue1_fix mục 4: trạng thái nút Test LLM (đang chạy / kết quả gần nhất).
+  bool _testingLlm = false;
+  LlmTestResult? _llmTestResult;
+
   bool _disposed = false;
 
   // ------------------------------------------------------------------ getters đọc cho UI
@@ -134,6 +144,37 @@ class SessionCoordinator extends ChangeNotifier {
   TrainingLevel get level => _level;
   ResolvedLlmConfig? get llmConfig => _llmConfig;
   bool? get hasApiKey => _hasApiKey;
+
+  /// issue1_fix mục 3: giá trị RAW persisted (endpoint/model, key đọc riêng). `null` = chưa load.
+  ({String? url, String? model})? get rawLlmConfig => _rawLlmConfig;
+  bool get testingLlm => _testingLlm;
+  LlmTestResult? get llmTestResult => _llmTestResult;
+
+  /// issue1_fix mục 4: nút Test LLM (SnackBar trả kết quả; không đụng phiên).
+  Future<void> testLlm() async {
+    if (_testingLlm) {
+      return; // chặn spam (prompt mục 4 — loading state).
+    }
+    _testingLlm = true;
+    _llmTestResult = null;
+    _notify();
+    try {
+      final LlmTestResult result = await _testLlm.run();
+      _llmTestResult = result;
+      enqueueSnack(
+        result.isSuccess
+            ? 'LLM hoạt động · ${result.model} · ${result.latency!.inMilliseconds}ms'
+            : 'Test LLM thất bại: ${result.message}',
+      );
+    } finally {
+      _testingLlm = false;
+      _notify();
+    }
+  }
+
+  /// issue1_fix mục 4: service Test LLM dùng CHUNG resolver với Post-Review/Suggestion (mục 5).
+  /// Client HTTP riêng (không dùng client của provider — test không được ảnh hưởng bởi state provider).
+  final TestLlmService _testLlm = TestLlmService();
   SuggestionResult? get lastSuggestion => _lastSuggestion;
   EffectiveNudgeOutput? get lastDelivery => _lastDelivery;
 
@@ -385,18 +426,35 @@ class SessionCoordinator extends ChangeNotifier {
     // Cố ý dùng `onChanged` thay vì `TextEditingController`: dialog chỉ biến mất sau animation,
     // dispose controller ngay sau `showDialog` làm TextField còn trong cây đọc controller đã hủy.
     String typed = '';
+    // issue1_fix mục 3 + 13: user YÊU CẦU HIỂN THỊ PLAINTEXT để debug — đọc key hiện có (nếu có)
+    // và điền sẵn vào ô nhập. DEBUG-ONLY: sẽ mask lại khi user muốn (comment mốc P7). KHÔNG log.
+    final String currentKey = await SecureStore.readLlmApiKey() ?? '';
+    typed = currentKey;
+    // `context.mounted` guard sau await đọc key — lint use_build_context_synchronously (A-bài học:
+    // không dùng BuildContext qua async gap không kiểm tra).
+    if (!context.mounted) {
+      return;
+    }
     final String? entered = await showDialog<String>(
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
-        title: const Text('API key LLM (Groq)'),
-        content: TextField(
-          autofocus: true,
-          obscureText: true,
-          onChanged: (String value) => typed = value,
-          decoration: const InputDecoration(
-            labelText: 'gsk_...',
-            helperText: 'Chỉ lưu trong keystore của máy (SecureStore), không vào SQLite/log.',
-          ),
+        title: Text(currentKey.isEmpty ? 'API key LLM — CHƯA CẤU HÌNH' : 'API key LLM (đang dùng)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            TextField(
+              autofocus: true,
+              // issue1_fix mục 3/13: KHÔNG obscureText — plaintext theo yêu cầu debug của user.
+              // (Xem mục 13 của prompt: chỉ đổi UI display, không làm yếu SecureStore, không log.)
+              obscureText: false,
+              controller: TextEditingController(text: currentKey),
+              onChanged: (String value) => typed = value,
+              decoration: InputDecoration(
+                labelText: currentKey.isEmpty ? 'Chưa cấu hình — dán key vào đây' : 'API key hiện tại',
+                helperText: 'Lưu trong keystore của máy (SecureStore), không vào SQLite/log.',
+              ),
+            ),
+          ],
         ),
         actions: <Widget>[
           TextButton(
@@ -410,13 +468,20 @@ class SessionCoordinator extends ChangeNotifier {
         ],
       ),
     );
-    if (entered == null || entered.isEmpty || !context.mounted) {
+    if (entered == null || !context.mounted) {
       return;
     }
     try {
-      await SecureStore.saveLlmApiKey(entered);
-      _log.info('đã lưu API key LLM vào SecureStore (không ghi giá trị)');
-      enqueueSnack('Đã lưu API key — bấm Gợi ý để gọi LLM thật.');
+      // issue1_fix: nhập rỗng ⇒ XOÁ key (đổi từ "bỏ qua" — để UI khớp "Chưa cấu hình" thật sự).
+      if (entered.isEmpty) {
+        await SecureStore.deleteLlmApiKey();
+        _log.info('đã xoá API key LLM (nhập rỗng)');
+        enqueueSnack('Đã xoá API key.');
+      } else {
+        await SecureStore.saveLlmApiKey(entered);
+        _log.info('đã lưu API key LLM vào SecureStore (không ghi giá trị)');
+        enqueueSnack('Đã lưu API key — bấm Test LLM để kiểm tra.');
+      }
     } catch (error) {
       _log.warn('không lưu được API key: $error');
       enqueueSnack('Không lưu được API key: $error');
@@ -430,6 +495,12 @@ class SessionCoordinator extends ChangeNotifier {
       final ResolvedLlmConfig config =
           await LlmProviderConfigResolver.resolve(const MetaConfigStore());
       _llmConfig = config;
+      // issue1_fix mục 3: đọc thêm giá trị RAW đã lưu (để dialog hiện đúng, kể cả khi hỏng/fallback).
+      final ConfigStore store = const MetaConfigStore();
+      _rawLlmConfig = (
+        url: await store.read(LlmProviderConfig.baseUrlKey),
+        model: await store.read(LlmProviderConfig.modelKey),
+      );
       _notify();
     } catch (error) {
       // resolve() không ném theo hợp đồng; lưới an toàn cuối cùng.
@@ -440,9 +511,13 @@ class SessionCoordinator extends ChangeNotifier {
   /// P2.1: mở hộp thoại cấu hình endpoint/model LLM. KHÔNG lưu giá trị hỏng — validate ngay trong
   /// dialog (báo lỗi trước khi cho lưu).
   Future<void> editLlmConfig(BuildContext context) async {
-    String typedUrl = '';
-    String typedModel = '';
-    String? urlError;
+    // issue1_fix mục 3: điền sẵn GIÁ TRỊ PERSISTED (không phải placeholder) — "save → reopen →
+    // identical". Giá trị rỗng hiện đúng ô trống + helperText mặc định.
+    final ({String? url, String? model})? raw = _rawLlmConfig;
+    String typedUrl = raw?.url ?? '';
+    String typedModel = raw?.model ?? '';
+    String? urlError =
+        typedUrl.isEmpty ? null : LlmProviderConfigResolver.validateEndpoint(typedUrl);
     final Map<String, Object?>? result = await showDialog<Map<String, Object?>>(
       context: context,
       builder: (BuildContext dialogContext) => StatefulBuilder(
@@ -455,6 +530,7 @@ class SessionCoordinator extends ChangeNotifier {
             children: <Widget>[
               TextField(
                 autofocus: true,
+                controller: TextEditingController(text: typedUrl),
                 onChanged: (String value) {
                   typedUrl = value;
                   setDialogState(() => urlError = LlmProviderConfigResolver.validateEndpoint(value));
@@ -467,11 +543,48 @@ class SessionCoordinator extends ChangeNotifier {
               ),
               const SizedBox(height: 12),
               TextField(
+                controller: TextEditingController(text: typedModel),
                 onChanged: (String value) => typedModel = value,
                 decoration: const InputDecoration(
                   labelText: 'Model (để trống = mặc định)',
                   helperText: SuggestionConfig.groqModel,
                 ),
+              ),
+              const SizedBox(height: 12),
+              // issue1_fix mục 4: Test LLM ngay trong dialog — dùng giá trị ĐANG HIỆN trên UI
+              // (ưu tiên trước giá trị đã lưu, đúng yêu cầu prompt).
+              OutlinedButton.icon(
+                onPressed: _testingLlm
+                    ? null
+                    : () async {
+                        setDialogState(() {}); // vô hiệu hoá nút ngay (loading state)
+                        final LlmTestResult test = await _testLlm.run(
+                          endpointOverride: typedUrl,
+                          modelOverride: typedModel,
+                        );
+                        if (!dialogContext.mounted) {
+                          return;
+                        }
+                        setDialogState(() => _llmTestResult = test);
+                        final ScaffoldMessengerState? messenger = messengerKey.currentState;
+                        messenger?.showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              test.isSuccess
+                                  ? 'LLM hoạt động · ${test.model} · ${test.latency!.inMilliseconds}ms'
+                                  : 'Test LLM thất bại: ${test.message}',
+                            ),
+                          ),
+                        );
+                      },
+                icon: _testingLlm
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.network_check),
+                label: Text(_testingLlm ? 'Testing...' : 'Test LLM'),
               ),
             ],
           ),
@@ -636,8 +749,16 @@ class SessionCoordinator extends ChangeNotifier {
     _notify();
     try {
       if (session.isActive) {
+        // issue1_fix mục 6: capture sessionId TRƯỚC mọi async — `stop()` không đổi sessionId của
+        // TranscriptStore, nhưng Post-Review đọc `transcript.sessionId` bên trong `run()` nên phải
+        // chốt ngay từ đầu để đánh dấu đúng phiên vừa nói (tránh race khi có code nào đổi phiên).
+        final int finalSessionId = transcript.sessionId!;
         await session.stop();
         enqueueSnack('Đã kết thúc buổi — đang tạo nhận xét...');
+        // issue1_fix mục 6: đánh dấu kết thúc CHỦ ĐỘNG ngay sau khi stop, TRƯỚC Post-Review (lần
+        // Start kế tiếp sẽ tạo phiên MỚI, không resume phiên này dù còn trong resumeGap).
+        await transcript.markCurrentSessionEnded();
+        _log.info('phiên #$finalSessionId đã đánh dấu kết thúc (user-initiated)');
       }
       final PostReviewReport report = await postReview.run();
       // Transcript đầy đủ chỉ để hiện ở "xem chi tiết" — đọc lỗi thì vẫn hiện báo cáo, chỉ mất phần chi

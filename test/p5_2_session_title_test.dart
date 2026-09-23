@@ -154,7 +154,10 @@ void main() {
 
     test('databaseVersion tăng đúng 1 bậc so với version thật lúc bắt đầu P5.2 (3 ⇒ 4)', () {
       // KHÔNG hard-code mù: P5.2 bắt đầu khi version thật = 3 (đọc từ code lúc bắt đầu phase).
-      expect(StorageConfig.databaseVersion, 4);
+      // Cập nhật sau issue1_fix: version toàn cục giờ là 5 (issue1_fix thêm cột ended_at_ms qua
+      // nhánh riêng `< 5`); mốc 4 được khoá riêng ở test khác (databaseVersion >= 4 ⇒ schema title).
+      expect(StorageConfig.databaseVersion, greaterThanOrEqualTo(4));
+      expect(StorageConfig.databaseVersion, 5, reason: 'issue1_fix đã nâng lên 5');
     });
 
     test('có nhánh mới oldVersion < 4, thêm cột title bằng ALTER TABLE', () {

@@ -6,8 +6,11 @@ import 'app_database.dart';
 
 /// Một phiên transcript (P1E).
 ///
-/// Phiên = một lần "mở app và nói chuyện liên tục". Không có `endedAt`: phiên kết thúc khi có phiên
-/// mới (xem `TranscriptStore.init`) — tránh phải thêm API `endSession()` mà chưa ai gọi.
+/// Phiên = một lần "mở app và nói chuyện liên tục". Từ **issue1_fix**, phiên có thêm
+/// [endedAt] (issue1_fix mục 6): `null` = chưa kết thúc **chủ động** — chỉ những phiên này được
+/// resume lại qua `resumeGap` khi mở app (crash recovery). Người dùng bấm "Kết thúc buổi" ⇒
+/// `markSessionEnded` ghi mốc ⇒ lần Start sau đó LUÔN tạo phiên mới (tránh transcript lẫn + báo
+/// cáo Post-Review bị ghi đè nhầm phiên).
 ///
 /// [title] (P5.2) là tên người dùng tự đặt, **`null` = chưa đặt** (không backfill cho phiên cũ).
 /// Tên hiển thị luôn sinh qua `SessionDisplayName.of` — xem `lib/transcript/session_display_name.dart`.
@@ -17,11 +20,20 @@ class TranscriptSession {
     required this.startedAt,
     required this.lastActivityAt,
     this.title,
+    this.endedAt,
   });
 
   final int id;
   final DateTime startedAt;
   final DateTime lastActivityAt;
+
+  /// Mốc kết thúc **chủ động** (issue1_fix) — `null` = chưa kết thúc (phiên crash/đang dở,
+  /// được resume theo policy cũ). Cột `ended_at_ms` chỉ có từ schema v5; truy vấn đọc map thiếu
+  /// khoá (test fake cũ) cũng an toàn vì đọc qua `as String?`-style cast nullable.
+  final DateTime? endedAt;
+
+  /// `true` khi phiên đã được người dùng kết thúc chủ động ⇒ KHÔNG được resume.
+  bool get isFinished => endedAt != null;
 
   /// Tên phiên do người dùng đặt (P5.2). `null` = chưa đặt tên ⇒ hiển thị tên mặc định theo
   /// [startedAt]. Không phải khoá chính/không dùng để tra cứu — chỉ để hiển thị.
@@ -30,7 +42,9 @@ class TranscriptSession {
   @override
   String toString() =>
       'TranscriptSession(#$id, start=${startedAt.toIso8601String()}, '
-      'last=${lastActivityAt.toIso8601String()}${title == null ? '' : ', title="$title"'})';
+      'last=${lastActivityAt.toIso8601String()}'
+      '${title == null ? '' : ', title="$title"'}'
+      '${endedAt == null ? '' : ', ended=${endedAt!.toIso8601String()}'})';
 }
 
 /// Một mốc Push đã ghi (P5: thống kê tuần — "số lần Push/buổi").
@@ -134,6 +148,14 @@ abstract class TranscriptDao {
   /// Lưu báo cáo Post-Review dùng được cho phiên [sessionId]. Ghi **đè** báo cáo cũ nếu phiên đã có
   /// (người dùng chạy Post-Review lại — chỉ bản mới nhất có ý nghĩa xem lại).
   Future<void> saveReport(int sessionId, PostReviewReportRow report);
+
+  // --- issue1_fix: lifecycle phiên (ACTIVE vs FINISHED) ---
+
+  /// Đánh dấu phiên [sessionId] đã kết thúc **chủ động** tại [endedAt] (issue1_fix mục 6).
+  ///
+  /// Chỉ ghi mốc, KHÔNG đụng dữ liệu khác (transcript/push/báo cáo giữ nguyên — Post-Review vẫn
+  /// đọc được sau khi đánh dấu). Ghi lần 2 ghi đè mốc cũ (idempotent, vô hại).
+  Future<void> markSessionEnded(int sessionId, DateTime endedAt);
 
   // --- P5.2: tên phiên ---
 
@@ -398,6 +420,23 @@ class SqliteTranscriptDao implements TranscriptDao {
   }
 
   @override
+  Future<void> markSessionEnded(int sessionId, DateTime endedAt) async {
+    final Database db = await AppDatabase.instance();
+    final int changed = await db.update(
+      'transcript_sessions',
+      <String, Object?>{'ended_at_ms': endedAt.millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: <Object?>[sessionId],
+    );
+    if (changed == 0) {
+      // Phiên đã bị dọn theo retention (hoặc chưa từng tồn tại) — không có gì để đánh dấu.
+      _log.warn('không đánh dấu kết thúc được: phiên #$sessionId không còn trong DB');
+      return;
+    }
+    _log.info('đánh dấu phiên #$sessionId đã kết thúc chủ động');
+  }
+
+  @override
   Future<void> renameSession(int sessionId, String? title) async {
     final Database db = await AppDatabase.instance();
     final int changed = await db.update(
@@ -422,6 +461,10 @@ class SqliteTranscriptDao implements TranscriptDao {
       lastActivityAt: DateTime.fromMillisecondsSinceEpoch(row['last_activity_at_ms']! as int),
       // Cột `title` chỉ có từ v4; các truy vấn cũ vẫn trả map thiếu khoá này.
       title: row['title'] as String?,
+      // Cột `ended_at_ms` chỉ có từ v5 (issue1_fix); map thiếu khoá/NULL = chưa kết thúc.
+      endedAt: row['ended_at_ms'] == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(row['ended_at_ms']! as int),
     );
   }
 }

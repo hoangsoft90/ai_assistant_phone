@@ -39,7 +39,7 @@ abstract final class StorageConfig {
   /// `transcript_sessions` (tên phiên do người dùng đặt, `NULL` = dùng tên mặc định theo timestamp).
   /// Mỗi lần lên version PHẢI có nhánh migration tương ứng trong `AppDatabase._onUpgrade` — người
   /// dùng đã có DB v1/v2/v3 trên máy.
-  static const int databaseVersion = 4;
+  static const int databaseVersion = 5;
 
   /// Transcript (P1E): cửa sổ giữ trong **bộ nhớ hoạt động**. Dài hơn thì đọc thẳng từ SQLite;
   /// ngắn hơn thì tốn RAM vô ích khi phiên chạy hàng giờ.

@@ -153,6 +153,22 @@ class _FakeDao implements TranscriptDao {
   Future<Set<int>> sessionIdsWithReport() => Future<Set<int>>.value(reports.keys.toSet());
 
   @override
+  Future<void> markSessionEnded(int sessionId, DateTime endedAt) async {
+    final int index = sessions.indexWhere((TranscriptSession s) => s.id == sessionId);
+    if (index < 0) {
+      return;
+    }
+    final TranscriptSession old = sessions[index];
+    sessions[index] = TranscriptSession(
+      id: old.id,
+      startedAt: old.startedAt,
+      lastActivityAt: old.lastActivityAt,
+      title: old.title,
+      endedAt: endedAt,
+    );
+  }
+
+  @override
   Future<void> renameSession(int sessionId, String? title) async {
     final int index = sessions.indexWhere((TranscriptSession s) => s.id == sessionId);
     if (index < 0) {
