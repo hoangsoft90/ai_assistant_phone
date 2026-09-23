@@ -3,6 +3,7 @@ import '../audio/nudge_delivery.dart';
 import '../audio/output_mode_selector.dart';
 import '../audio/tts/safe_tts_output.dart';
 import '../core/app_logger.dart';
+import '../services/storage/meta_store.dart';
 import '../suggestion/suggestion_models.dart';
 import '../suggestion/suggestion_service.dart';
 import '../transcript/transcript_store.dart';
@@ -70,7 +71,11 @@ class TriggerManager {
     TranscriptStore? transcript,
     EmergencyPhraseService? emergency,
     SafeTtsOutput? tts,
-  })  : _suggestions = suggestions ?? SuggestionService(),
+    ConfigStore? llmConfigStore,
+  })  : _suggestions = suggestions ??
+            (llmConfigStore == null
+                ? SuggestionService()
+                : SuggestionService(llmConfigStore: llmConfigStore)),
         _modes = modes ?? OutputModeSelector(),
         _delivery = delivery ?? NudgeDelivery(),
         _transcript = transcript ?? TranscriptStore.instance(),

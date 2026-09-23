@@ -8,6 +8,7 @@ import '../core/app_logger.dart';
 import '../transcript/transcript_store.dart';
 import 'groq_llm_provider.dart';
 import 'llm_provider.dart';
+import '../services/storage/meta_store.dart';
 import 'offline_nudge_cache.dart';
 import 'session_memory.dart';
 import 'suggestion_context_builder.dart';
@@ -36,7 +37,9 @@ class SuggestionService {
     PreBriefStore? preBriefs,
     SessionSummaryService? summaries,
     TrainingLevelStore? levels,
-  })  : _provider = provider ?? GroqLlmProvider(),
+    ConfigStore? llmConfigStore,
+  })  : _provider = provider ??
+            (llmConfigStore == null ? GroqLlmProvider() : GroqLlmProvider(configStore: llmConfigStore)),
         _policy = policy ?? SuggestionPolicy(),
         _builder = builder ?? SuggestionContextBuilder(),
         _memory = memory ?? SessionMemory(),
@@ -44,7 +47,13 @@ class SuggestionService {
         _cache = cache ?? OfflineNudgeCache.instance(),
         _now = now ?? DateTime.now,
         _preBriefs = preBriefs ?? PreBriefStore.instance(),
-        _summaries = summaries ?? SessionSummaryService(),
+        _summaries = summaries ??
+            SessionSummaryService(
+              // P2.1: summary dùng CÙNG provider cấu hình — chỉ đổi khi caller không truyền sẵn.
+              provider: llmConfigStore == null
+                  ? null
+                  : GroqLlmProvider(configStore: llmConfigStore),
+            ),
         _levels = levels ?? TrainingLevelStore.instance();
 
   static const AppLogger _log = AppLogger('Suggestion');

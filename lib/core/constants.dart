@@ -34,9 +34,12 @@ abstract final class StorageConfig {
   static const String databaseName = 'ai_assistant.db';
 
   /// Version schema SQLite. v2 (P1E): thêm 3 bảng transcript (`transcript_sessions`,
-  /// `transcript_segments`, `transcript_pushes`). Mỗi lần lên version PHẢI có nhánh migration
-  /// tương ứng trong `AppDatabase._onUpgrade` — người dùng đã có DB v1 trên máy.
-  static const int databaseVersion = 2;
+  /// `transcript_segments`, `transcript_pushes`). v3 (P5.1): thêm bảng `post_review_reports`
+  /// (lưu báo cáo Post-Review để xem lại trong Lịch sử). v4 (P5.2): thêm cột `title` vào
+  /// `transcript_sessions` (tên phiên do người dùng đặt, `NULL` = dùng tên mặc định theo timestamp).
+  /// Mỗi lần lên version PHẢI có nhánh migration tương ứng trong `AppDatabase._onUpgrade` — người
+  /// dùng đã có DB v1/v2/v3 trên máy.
+  static const int databaseVersion = 4;
 
   /// Transcript (P1E): cửa sổ giữ trong **bộ nhớ hoạt động**. Dài hơn thì đọc thẳng từ SQLite;
   /// ngắn hơn thì tốn RAM vô ích khi phiên chạy hàng giờ.
@@ -48,9 +51,18 @@ abstract final class StorageConfig {
   /// khoảng nghỉ, đủ ngắn để lần mở app hôm sau không nối vào phiên cũ.
   static const Duration transcriptResumeGap = Duration(minutes: 30);
 
-  /// Tự xoá transcript cũ hơn mốc này (P1E task 7 — quyền riêng tư, mục 5.3): 7 ngày.
+  /// Tự xoá transcript cũ hơn mốc này (P1E task 7 — quyền riêng tư, mục 5.3): mặc định 7 ngày.
   /// Chạy ở `TranscriptStore.init()` (lúc app khởi động).
+  ///
+  /// P5.1: hạn này **chỉnh được** trong Settings — số ngày thật được đọc từ khoá
+  /// [retentionDaysKey] (bảng `meta`) qua `RetentionConfigResolver.resolve`; hằng số dưới đây chỉ
+  /// còn là **giá trị mặc định** khi người dùng chưa từng đổi (không được dùng trực tiếp để xoá).
   static const Duration transcriptRetention = Duration(days: 7);
+
+  /// Khoá lưu số ngày tự xoá dữ liệu (P5.1). Rỗng/null = dùng mặc định
+  /// [transcriptRetention] (7 ngày). Chỉ nhận số nguyên dương; giá trị khác → fallback mặc định
+  /// (resolver không bao giờ ném). UI chỉ cho chọn trong danh sách cố định 3/7/14/30 ngày.
+  static const String retentionDaysKey = 'storage.retention_days';
 
   /// Khóa lưu API key của LLM trong secure storage (dùng từ P2).
   static const String llmApiKeyKey = 'llm_api_key';
@@ -78,6 +90,19 @@ abstract final class SuggestionConfig {
 
   /// Endpoint Groq chat completions (OpenAI-compatible, xác minh từ tài liệu chính thức 2026-09).
   static const String groqEndpoint = 'https://api.groq.com/openai/v1/chat/completions';
+}
+
+/// Khoá cấu hình LLM tuỳ chỉnh (P2.1 — người dùng có thể đổi endpoint/model của provider
+/// OpenAI-compatible). GIÁ TRỊ KHÔNG NHẠY CẢM nên lưu bảng `meta` qua `MetaConfigStore` — KHÔNG
+/// SecureStore (key vẫn nằm SecureStore, ràng buộc #8; nhất quán cách P1D/P3 lưu lựa chọn cấu hình).
+/// Resolver đọc/fallback: `lib/suggestion/llm_provider_config.dart`.
+abstract final class LlmProviderConfig {
+  /// Endpoint chat completions đầy đủ. Rỗng/null/không parse được ⇒ dùng
+  /// [SuggestionConfig.groqEndpoint] mặc định (hành vi y hệt trước P2.1).
+  static const String baseUrlKey = 'llm.base_url';
+
+  /// Model. Rỗng/null ⇒ dùng [SuggestionConfig.groqModel] mặc định.
+  static const String modelKey = 'llm.model';
 }
 
 /// Cấu hình Trigger + Output Mode (P3).

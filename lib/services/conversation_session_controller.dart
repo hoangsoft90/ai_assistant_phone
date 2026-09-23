@@ -74,11 +74,15 @@ class ConversationSessionController {
     Future<bool> Function()? startService,
     Future<void> Function()? stopService,
     DateTime Function()? now,
+    ConfigStore? llmConfigStore,
   })  : _capture = capture ?? AudioCapture.instance,
         _conversation = conversation ?? ConversationStateNotifier.instance,
         _asrSelector = asrSelector ?? AsrEngineSelector(const MetaConfigStore()),
         _transcript = transcript ?? TranscriptStore.instance(),
-        _trigger = trigger ?? TriggerManager(),
+        _trigger = trigger ??
+            (llmConfigStore == null
+                ? TriggerManager()
+                : TriggerManager(llmConfigStore: llmConfigStore)),
         _tts = tts ?? SafeTtsOutput.instance(),
         _startService = startService ?? ListeningService.start,
         _stopService = stopService ?? ListeningService.stop,

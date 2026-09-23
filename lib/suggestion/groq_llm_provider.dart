@@ -6,7 +6,9 @@ import 'package:http/http.dart' as http;
 import '../core/constants.dart';
 import '../services/storage/secure_store.dart';
 import 'llm_provider.dart';
+import 'llm_provider_config.dart';
 import 'suggestion_models.dart';
+import '../services/storage/meta_store.dart';
 
 /// Provider Groq (P2 mặc định) — endpoint OpenAI-compatible
 /// `POST https://api.groq.com/openai/v1/chat/completions` (xác minh từ tài liệu chính thức
@@ -16,9 +18,13 @@ import 'suggestion_models.dart';
 ///   tuyệt đối không hard-code (constraint P2).
 /// - `response_format: json_object` (JSON mode của Groq) — giảm xác suất LLM trả text thường.
 /// - Mọi lỗi vận hành (timeout/mạng/HTTP/JSON) ⇒ [SuggestionException] — tầng service retry 1 lần
-///   rồi quy về `NO_SUGGESTION`.
-/// - Thân phản hồi được đọc bằng kiểm tra kiểu (`is`), **không cast cứng** — envelope dị dạng phải
+///   rồi quy về `NO_SUGGESTION`./// - Thân phản hồi được đọc bằng kiểm tra kiểu (`is`), **không cast cứng** — envelope dị dạng phải
 ///   ra [SuggestionException], không được ném `TypeError` (xem bài học A50).
+/// - **P2.1:** khi [configStore] được truyền, endpoint + model được đọc lại từ bảng `meta` **mỗi lần
+///   gọi** (đối xứng với cách key đọc từ SecureStore mỗi lần gọi) — cấu hình mới có hiệu lực ngay
+///   cho lần gọi kế tiếp, không cần khởi động lại app. Không truyền (mặc định của mọi nơi chưa nâng
+///   cấp, và của toàn bộ test cũ) ⇒ dùng giá trị Groq mặc định Y HỆT trước khi có P2.1. Endpoint/
+///   model KHÔNG nhạy cảm nên nằm ở `meta`, KHÔNG SecureStore (ràng buộc #8 — key vẫn ở đó).
 class GroqLlmProvider implements LlmProvider, TextLlmProvider {
   GroqLlmProvider({
     http.Client? client,
@@ -26,6 +32,7 @@ class GroqLlmProvider implements LlmProvider, TextLlmProvider {
     Uri? endpoint,
     this.model = SuggestionConfig.groqModel,
     this.timeout = SuggestionConfig.llmTimeout,
+    this.configStore,
   })  : _client = client ?? http.Client(),
         _apiKeyReader = apiKeyReader ?? SecureStore.readLlmApiKey,
         _endpoint = endpoint ?? Uri.parse(SuggestionConfig.groqEndpoint);
@@ -35,6 +42,11 @@ class GroqLlmProvider implements LlmProvider, TextLlmProvider {
   final Uri _endpoint;
   final String model;
   final Duration timeout;
+
+  /// P2.1: nguồn cấu hình endpoint/model tuỳ chỉnh; `null` = luôn dùng giá trị constructor (Groq mặc
+  /// định). Khi có, đọc mỗi lần gọi qua [LlmProviderConfigResolver] — fallback an toàn về Groq nếu
+  /// chưa cấu hình/giá trị hỏng (không ném).
+  final ConfigStore? configStore;
 
   @override
   Future<SuggestionResult> generateSuggestion(SuggestionContext context) async {
@@ -74,6 +86,21 @@ class GroqLlmProvider implements LlmProvider, TextLlmProvider {
       throw const SuggestionException('chưa có API key Groq (lưu qua SecureStore)');
     }
 
+    // P2.1: endpoint/model hiện hành — đọc cấu hình mỗi lần gọi khi có `configStore` (không cache);
+    // không có thì dùng đúng giá trị constructor như trước. Cấu hình hỏng ⇒ resolver trả mặc định
+    // Groq, không ném. Body/parse/error-handling bên dưới KHÔNG đổi (constraint P2.1).
+    final Uri endpoint;
+    final String model;
+    final ConfigStore? store = configStore;
+    if (store == null) {
+      endpoint = _endpoint;
+      model = this.model;
+    } else {
+      final ResolvedLlmConfig resolved = await LlmProviderConfigResolver.resolve(store);
+      endpoint = resolved.endpoint;
+      model = resolved.model;
+    }
+
     final Map<String, Object?> body = <String, Object?>{
       'model': model,
       'messages': <Map<String, String>>[
@@ -88,7 +115,7 @@ class GroqLlmProvider implements LlmProvider, TextLlmProvider {
     try {
       response = await _client
           .post(
-            _endpoint,
+            endpoint,
             headers: <String, String>{
               'Authorization': 'Bearer $apiKey',
               'Content-Type': 'application/json',

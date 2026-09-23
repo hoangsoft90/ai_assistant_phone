@@ -4,8 +4,20 @@ import '../core/app_logger.dart';
 import '../suggestion/groq_llm_provider.dart';
 import '../suggestion/llm_provider.dart';
 import '../suggestion/suggestion_models.dart';
+import '../services/storage/meta_store.dart';
+import '../services/storage/transcript_dao.dart';
 import '../transcript/transcript_store.dart';
 import 'pre_brief.dart';
+
+/// Nơi lưu báo cáo Post-Review dùng được (P5.1).
+///
+/// Tách interface (thay vì gọi `TranscriptDao` trực tiếp) để test `run()` không cần SQLite — cùng
+/// cách `TranscriptDao`/`ConfigStore` đã làm từ P1D/P1E.
+abstract class ReportSink {
+  /// [report] đã mang `sessionId` — không truyền thêm tham số phiên riêng (tránh nguy cơ truyền
+  /// lệch phiên so với dòng báo cáo).
+  Future<void> save(PostReviewReportRow report);
+}
 
 /// Báo cáo Post-Review — đúng **3 mục** theo mục 4.10 của plan (thứ tự cố định: làm tốt → cơ hội bỏ
 /// lỡ → bài tập).
@@ -91,10 +103,14 @@ class PostReviewService {
     PreBriefStore? preBriefs,
     DateTime Function()? now,
     this.maxTokens = 500,
-  })  : _provider = provider ?? GroqLlmProvider(),
+    ConfigStore? llmConfigStore,
+    ReportSink? reportSink,
+  })  : _provider = provider ??
+            (llmConfigStore == null ? GroqLlmProvider() : GroqLlmProvider(configStore: llmConfigStore)),
         _transcript = transcript ?? TranscriptStore.instance(),
         _preBriefs = preBriefs ?? PreBriefStore.instance(),
-        _now = now ?? DateTime.now;
+        _now = now ?? DateTime.now,
+        _reportSink = reportSink ?? const SqliteReportSink();
 
   static const AppLogger _log = AppLogger('PostReview');
 
@@ -102,6 +118,9 @@ class PostReviewService {
   final TranscriptStore _transcript;
   final PreBriefStore _preBriefs;
   final DateTime Function() _now;
+
+  /// Nơi lưu báo cáo dùng được (P5.1) — tách interface để test không cần SQLite.
+  final ReportSink _reportSink;
 
   /// Trần token cho mỗi lần phân tích (3 mục, mỗi mục một câu).
   final int maxTokens;
@@ -176,7 +195,41 @@ class PostReviewService {
       'Post-Review xong: ${transcript.segmentCount} dòng'
       '${transcript.truncated ? ' (transcript đã cắt)' : ''}',
     );
+
+    // P5.1: lưu báo cáo dùng được để xem lại từ màn hình Lịch sử. GHI TRƯỚC khi caller đổi phiên
+    // transcript (report được gắn với `sessionId` hiện tại — đúng dữ liệu vừa phân tích). Việc lưu
+    // lỗi KHÔNG được làm hỏng trải nghiệm Post-Review: vẫn trả báo cáo cho UI như bình thường.
+    await _persist(parsed, transcript.segmentCount, transcript.truncated);
+
     return parsed;
+  }
+
+  /// Lưu báo cáo vào DB (P5.1). Chỉ lưu khi `isUsable` — báo cáo `unavailable`/thiếu mục không có
+  /// giá trị xem lại, chỉ gây nhiễu Lịch sử. KHÔNG BAO GIỜ ném: DB đầy/lỗi chỉ được log.
+  Future<void> _persist(PostReviewReport report, int segmentCount, bool truncated) async {
+    if (!report.isUsable) {
+      return;
+    }
+    final int? sessionId = _transcript.sessionId;
+    if (sessionId == null) {
+      _log.warn('không lưu được báo cáo: phiên transcript chưa mở');
+      return;
+    }
+    try {
+      await _reportSink.save(
+        PostReviewReportRow(
+          sessionId: sessionId,
+          generatedAt: report.generatedAt ?? _now(),
+          good: report.good,
+          missed: report.missed,
+          exercise: report.exercise,
+          segmentCount: segmentCount,
+          truncated: truncated,
+        ),
+      );
+    } catch (error, stackTrace) {
+      _log.error('không lưu được báo cáo Post-Review (bỏ qua — trải nghiệm không đổi)', error, stackTrace);
+    }
   }
 
   /// Parse output LLM thành báo cáo 3 mục; trả `null` khi không đúng định dạng.
@@ -266,4 +319,14 @@ class PostReviewService {
       ..writeln(transcript);
     return buffer.toString();
   }
+}
+
+/// Bản thật: ghi bảng `post_review_reports` qua `TranscriptDao.saveReport` (đơn thuần uỷ quyền —
+/// DAO mới là nơi nắm schema/transaction; service không đụng SQL).
+class SqliteReportSink implements ReportSink {
+  const SqliteReportSink();
+
+  @override
+  Future<void> save(PostReviewReportRow report) =>
+      const SqliteTranscriptDao().saveReport(report.sessionId, report);
 }
