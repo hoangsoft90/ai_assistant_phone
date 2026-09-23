@@ -60,10 +60,6 @@ android {
                 "proguard-rules.pro",
             )
         }
-        debug {
-            // R8 chỉ chạy ở release; giữ bản debug không minify để stack trace dễ đọc khi test.
-            isMinifyEnabled = false
-        }
     }
 
     // P1C: build whisper.cpp (FetchContent pin commit trong cpp/CMakeLists.txt) + JNI wrapper.

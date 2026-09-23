@@ -62,7 +62,8 @@ Toàn bộ phần sau **chỉ làm được trên máy thật** (máy dev không
 
 ```bash
 # Debug (đã dùng từ P1C): push lên main → CI build-debug-apk.yml → artifact app-debug-apk
-# Release (P7): push lên main → CI build-release-apk.yml → artifact app-release-apk-unsigned-test
+# Release (P7): push lên main → CI build-release-apk.yml → artifact app-release-apk-debugsigned-test
+# (tên ghi rõ "debugsigned": bản này KÝ BẰNG DEBUG KEY, chưa có keystore release — không phân phối)
 ```
 
 Cài trên máy: tải artifact, `adb install -r app-*.apk` (hoặc mở file APK trực tiếp trên máy).

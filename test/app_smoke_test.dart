@@ -8,12 +8,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show Scrollable;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ai_assistant_phone/coaching/ethics_gate.dart';
 import 'package:ai_assistant_phone/main.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
+    // P7: cổng lời nhắc đạo đức giữ state trong RAM (static) ⇒ mỗi test phải bắt đầu từ "chưa hiện".
+    EthicsGate.resetForTest();
     final TestDefaultBinaryMessenger messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     const List<String> channels = <String>[
@@ -53,6 +56,11 @@ void main() {
     await tester.tap(find.text('Tôi hiểu'));
     await tester.pumpAndSettle();
     expect(find.text('Trước khi dùng'), findsNothing);
+    // Bấm "Tôi hiểu" ⇒ đánh dấu đã xác nhận (lần mở sau không nhắc lại).
+    for (int i = 0; i < 3; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(EthicsGate.hasShown, isTrue);
 
     expect(find.text('Trợ lý giao tiếp'), findsOneWidget);
     expect(find.text('Bật lắng nghe'), findsOneWidget);
@@ -65,5 +73,24 @@ void main() {
     await tester.scrollUntilVisible(find.text('chưa nghe'), 120, scrollable: find.byType(Scrollable).first);
     await tester.pump();
     expect(find.text('chưa nghe'), findsOneWidget); // trạng thái VAD ban đầu (P1B)
+  });
+
+  // P7 review: `barrierDismissible: false` KHÔNG chặn được nút back hệ thống. Nếu nút back cũng
+  // đánh dấu "đã xác nhận" thì một lần bấm back sẽ nuốt vĩnh viễn lời nhắc đạo đức — app không còn
+  // nhắc lại nữa. Test này khoá đúng hành vi đó: back ⇒ đóng dialog nhưng KHÔNG đánh dấu.
+  testWidgets('đóng lời nhắc đạo đức bằng nút back ⇒ vẫn chưa xác nhận (sẽ nhắc lại)',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const AiAssistantApp());
+    await tester.pump();
+    for (int i = 0; i < 6 && find.text('Tôi hiểu').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 120));
+    }
+    expect(find.text('Trước khi dùng'), findsOneWidget);
+
+    await tester.binding.handlePopRoute(); // mô phỏng nút back của hệ thống
+    await tester.pumpAndSettle();
+
+    expect(find.text('Trước khi dùng'), findsNothing);
+    expect(EthicsGate.hasShown, isFalse);
   });
 }

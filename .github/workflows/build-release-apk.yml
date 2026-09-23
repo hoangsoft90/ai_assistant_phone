@@ -18,10 +18,12 @@ name: Build release APK
 on:
   push:
     branches: [main]
+    # Chỉ build lại khi thứ ẢNH HƯỞNG TỚI R8/minify thay đổi. Cố ý KHÔNG có `lib/**`: mã Dart
+    # được AOT-compile ngoài R8 nên không thể làm hỏng keep rules, còn lỗi compile Dart đã do
+    # workflow debug bắt trên MỌI push — thêm `lib/**` chỉ tốn thêm ~6 phút CI mỗi lần sửa Dart.
     paths:
       - '.github/workflows/build-release-apk.yml'
       - 'android/**'
-      - 'lib/**'
       - 'pubspec.yaml'
   workflow_dispatch:
 
@@ -114,8 +116,10 @@ jobs:
       - name: Upload artifact APK release
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk-unsigned-test
-          # Tên rõ ràng: "unsigned-test" để không ai nhầm đây là bản phát hành.
+          # Tên artifact phải MÔ TẢ ĐÚNG thứ bên trong: APK này **debug-signed** (chưa có keystore
+          # release), không phải unsigned — đặt tên "unsigned" sẽ làm người đọc bằng chứng sau này
+          # kết luận sai về chính sách signing (bài học A58).
+          name: app-release-apk-debugsigned-test
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             android/app/build/outputs/apk/release/app-release.apk

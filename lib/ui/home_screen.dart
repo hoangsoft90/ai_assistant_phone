@@ -141,24 +141,33 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     _ethicsDialogOpen = true;
-    await showDialog<void>(
+    final bool? acknowledged = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext dialogContext) => AlertDialog(
+        // `scrollable: true` vì nội dung là một đoạn văn: ở cỡ chữ hệ thống lớn (accessibility)
+        // AlertDialog mặc định KHÔNG cuộn ⇒ phần cuối lời nhắc bị cắt mà không báo gì.
+        scrollable: true,
         title: const Text(EthicsConfig.dialogTitle),
         content: const Text(EthicsConfig.dialogBody),
         actions: <Widget>[
           TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text(EthicsConfig.dialogConfirm),
           ),
         ],
       ),
     );
-    // Đánh dấu "đã hiện" CHỈ SAU KHI dialog đóng: nếu app bị kill giữa chừng, lần mở sau vẫn
-    // thấy lời nhắc (hướng an toàn).
-    await EthicsGate.markShown(const MetaConfigStore());
     _ethicsDialogOpen = false;
+    // `barrierDismissible: false` KHÔNG chặn được nút back hệ thống ⇒ dialog có thể bị đóng mà chưa
+    // xác nhận (pop trả `null`). Chỉ đánh dấu "đã hiện" khi người dùng THỰC SỰ bấm "Tôi hiểu":
+    // nếu không, một lần bấm back sẽ nuốt vĩnh viễn lời nhắc — trong khi app bị kill giữa chừng thì
+    // `pop` không xảy ra nên flag cũng không được ghi. Hai đường đều nghiêng về "nhắc lại".
+    if (acknowledged != true) {
+      _log.info('lời nhắc đạo đức đóng mà chưa xác nhận — sẽ nhắc lại ở lần mở app sau');
+      return;
+    }
+    await EthicsGate.markShown(const MetaConfigStore());
   }
 
   /// P5: nạp Pre-Brief đã lưu (dùng làm ngữ cảnh cho phiên đang chuẩn bị) + Training Level.
