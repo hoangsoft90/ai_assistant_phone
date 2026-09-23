@@ -42,16 +42,27 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // P7 mục 5: chính sách signing. **Cố ý debug-signed** cho đến khi user tạo keystore
+            // riêng (đã chốt ở phiên P7: chưa signing — chỉ đo size + chạy R8 trên CI). KHÔNG
+            // phân phối APK này: debug key nằm trên CI và có thể bị thay thế bất cứ lúc nào.
+            // Khi signing thật: tạo keystore ngoài git + đọc password từ env/CI secret —
+            // TUYỆT ĐỐI không commit mật khẩu keystore vào repo (rule 8 của AGENTS.md).
             signingConfig = signingConfigs.getByName("debug")
-            // P1D: JNA gọi native qua reflection/interface mapping → phải giữ class JNA khi minify.
-            // Hiện isMinifyEnabled chưa bật nên danh sách này chưa có tác dụng, nhưng để sẵn tránh
-            // crash "UnsatisfiedLinkError/ClassNotFound" ngay lần đầu ai đó bật minify cho release.
+
+            // P7 mục 5: bật minify + shrink cho bản release. Lý do bật: model AI đã chiếm phần
+            // lớn APK (Vosk 32MB + whisper ~chục MB), phần code Java/Kotlin của app và SDK
+            // Flutter là phần duy nhất thu được. Keep rules ở proguard-rules.pro (JNA, org.vosk,
+            // AsrNative) — đã kiểm bằng grep toàn repo: đúng 3 nhóm cần reflection/JNI.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+        debug {
+            // R8 chỉ chạy ở release; giữ bản debug không minify để stack trace dễ đọc khi test.
+            isMinifyEnabled = false
         }
     }
 

@@ -1,0 +1,128 @@
+# Build APK RELEASE (P7 mục 5 — hardening trước khi xuất bản).
+#
+# Chính sách đã chốt với user: **chưa signing** — bản này vẫn debug-signed, chỉ để:
+#   1. chứng minh R8/minify KHÔNG làm hỏng whisper.cpp/Vosk/JNA (build thành công);
+#   2. đo kích thước APK release thật;
+#   3. có artifact để cài thử smoke test khi cần.
+# KHÔNG phân phối APK này. Khi signing thật: thêm signingConfig đọc từ CI secret
+# (keystore ngoài git) — xem comment trong android/app/build.gradle.kts.
+#
+# Bẫy đã xử lý (đọc comment của workflow debug trước khi viết — cùng bẫy, cùng cách xử lý):
+# - `flutter.sdk` trong android/local.properties phải tự sinh trên CI (file bị gitignore).
+# - Model Vosk (32MB) tải về + kiểm SHA256 trước build, đóng vào APK như asset Android.
+# - Retry 3 lần khi tải distribution Gradle (HTTP 504 đã từng làm CI fail — A31).
+# - Chỉ build 1 ABI (gradle.properties đã có disable-abi-filtering=true — K30).
+
+name: Build release APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-release-apk.yml'
+      - 'android/**'
+      - 'lib/**'
+      - 'pubspec.yaml'
+  workflow_dispatch:
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter 3.47.2
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.2
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Tải model Vosk + kiểm SHA256 (P1D)
+        run: |
+          set -euo pipefail
+          DEST="android/app/src/main/assets/models"
+          mkdir -p "$DEST"
+          URL="https://alphacephei.com/vosk/models/vosk-model-small-vn-0.4.zip"
+          EXPECTED="efe5c8494212110471a79befc48c79da679e5b1fc52a4ffb500222ff86d622e5"
+          curl -sSL --retry 3 --retry-delay 2 "$URL" -o "$DEST/vosk-model-small-vn-0.4.zip"
+          ACTUAL=$(sha256sum "$DEST/vosk-model-small-vn-0.4.zip" | awk '{print $1}')
+          echo "sha256: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::SHA256 model Vosk không khớp (mong đợi $EXPECTED)"
+            exit 1
+          fi
+          ls -l "$DEST"
+
+      - name: Sinh android/local.properties (flutter.sdk + sdk.dir)
+        run: |
+          {
+            echo "sdk.dir=${ANDROID_HOME}"
+            echo "flutter.sdk=${{ env.FLUTTER_ROOT }}"
+          } > android/local.properties
+          cat android/local.properties
+
+      - name: Build APK release (R8 bật — chưa signing)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          for i in 1 2 3; do
+            ./gradlew --version && break
+            if [ "$i" = 3 ]; then exit 1; fi
+            echo "::warning::tải distribution Gradle lỗi (lần $i) — thử lại sau 15s"
+            sleep 15
+          done
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Báo cáo size APK + kiểm R8 mapping
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, zipfile
+          apk = 'build/app/outputs/flutter-apk/app-release.apk'
+          if not os.path.exists(apk):
+              apk = 'android/build/app/outputs/apk/release/app-release.apk'
+          size = os.path.getsize(apk) / 1048576
+          libs = [n for n in zipfile.ZipFile(apk).namelist() if n.startswith('lib/') and n.endswith('.so')]
+          abis = sorted({n.split('/')[1] for n in libs})
+          print(f'=== APK release: {size:.1f} MB | {len(libs)} file .so | ABI: {abis}')
+          if abis != ['arm64-v8a']:
+              print(f'::warning::ABI ngoài mong đợi: {abis} (mong đợi chỉ arm64-v8a)')
+          with open('apk_size.txt', 'w') as f:
+              f.write(f'{size:.1f} MB | {len(libs)} .so | ABI {abis}\n')
+          PY
+          MAPPING=$(ls -1 android/app/build/outputs/mapping/release/mapping.txt 2>/dev/null || true)
+          if [ -n "$MAPPING" ]; then
+            echo "R8 mapping: $MAPPING ($(wc -l < "$MAPPING") dòng)"
+          else
+            echo "::warning::không thấy mapping.txt — kiểm lại isMinifyEnabled"
+          fi
+
+      - name: Upload artifact APK release
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk-unsigned-test
+          # Tên rõ ràng: "unsigned-test" để không ai nhầm đây là bản phát hành.
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload mapping.txt (R8)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-mapping-txt
+          path: android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: ignore
+          retention-days: 14

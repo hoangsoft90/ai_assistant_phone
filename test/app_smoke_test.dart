@@ -43,6 +43,17 @@ void main() {
     await tester.pumpWidget(const AiAssistantApp());
     await tester.pump();
 
+    // P7 mục 4: lần mở app ĐẦU TIÊN (mock trả null ⇒ chưa từng xác nhận) phải hiện lời nhắc
+    // đạo đức. barrierDismissible:false ⇒ phải bấm "Tôi hiểu" trước khi tương tác gì khác
+    // (modal barrier chặn drag — scrollUntilVisible sẽ chết nếu chưa đóng dialog).
+    for (int i = 0; i < 6 && find.text('Tôi hiểu').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 120));
+    }
+    expect(find.text('Trước khi dùng'), findsOneWidget);
+    await tester.tap(find.text('Tôi hiểu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Trước khi dùng'), findsNothing);
+
     expect(find.text('Trợ lý giao tiếp'), findsOneWidget);
     expect(find.text('Bật lắng nghe'), findsOneWidget);
     expect(find.text('Sẵn sàng'), findsOneWidget);

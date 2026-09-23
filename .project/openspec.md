@@ -93,6 +93,7 @@ dự kiến là P1A/P1B.
 | **K48** | **P5: 0/5 mục DoD chưa verify trên máy thật** — (a) Pre-Brief thật sự ảnh hưởng nudge (đổi "chủ đề kiêng kỵ" ⇒ nudge không rơi vào chủ đề đó) — phụ thuộc **K39** (nudge thật từ Groq); (b) Post-Review sinh đúng 3 mục sau một buổi thật; (c) đổi Training Level ⇒ hành vi đổi tay được (Level 4 chặn Push nhưng **Emergency vẫn phát**; Level 2 chặn khi thiếu ngữ cảnh; Level 3 chỉ sau ~8s im lặng); (d) số liệu 7 ngày khớp dữ liệu thật; (e) dòng `Coaching (P5)` hiện `tóm tắt N lần` sau ≥ 4 nudge | 🔴 cao | `.plan/P5-result.md` mục 3 + §8 |
 | **K49** | **Luật Training Level 2/3 là heuristic tự thiết kế** ("ngữ cảnh rõ" = đã nhập Pre-Brief hoặc có transcript trong 30s; "thật sự kẹt" = im lặng ≥ 8s kể từ dòng transcript cuối). Prompt P5 cho phép agent tự thiết kế nhưng chưa có phiên thật để chỉnh ⇒ có thể chặn quá tay hoặc quá lỏng | 🟠 vừa | `.plan/P5-result.md` mục 6.2 |
 | **K50** | **Báo cáo Post-Review không persist** — đóng màn hình là mất (cố ý ở v1 để không phát sinh dữ liệu nhạy cảm mới; hạn 7 ngày của P1E nhờ vậy không phải mở rộng) | 🟢 thấp | `.plan/P5-result.md` mục 6.6 |
+| **K51** | **P7: toàn bộ phần máy thật của hardening + checklist nghiệm thu** — cài APK release (R8 minify: có thể lộ lỗi reflection/JNI không có ở debug — đọc `mapping.txt` trước khi đoán) ⇒ smoke test đủ luồng Pre-Brief → Push → nudge → Kết thúc → Post-Review; 3 test case an toàn P1F lần cuối trên bản release; pin 1-2h; Doze/Battery Optimization; kịch bản lỗi thật (rút BT, tắt mic permission, mất mạng giữa lần gọi LLM); 4 nguyên tắc bất biến + không TTS ra loa ngoài + không crash cả buổi; verify xoá transcript 7 ngày; **signing** (keystore ngoài git + GitHub Secrets — `keytool` có sẵn trên máy dev). Gộp cùng buổi với K34/K39/K41/K42/K46/K47/K48 | 🔴 cao | `.plan/P7-result.md` + `RELEASE_NOTES.md` §4 |
 
 ## 4. Todo ngay tiếp theo (thứ tự)
 
@@ -123,7 +124,9 @@ dự kiến là P1A/P1B.
 
 - Repo **đã có lịch sử commit** trên `main` (`hoangsoft90/ai_assistant_phone`), mỗi phase một vài commit;
   `git diff`/impact review dùng được bình thường.
-- **Đường build duy nhất = GitHub Actions** (`.github/workflows/build-debug-apk.yml`, gradlew trực tiếp).
+- **Đường build duy nhất = GitHub Actions** (`.github/workflows/build-debug-apk.yml`, gradlew trực tiếp;
+  từ P7 thêm `.github/workflows/build-release-apk.yml` — `assembleRelease` + R8, **debug-signed cố ý**
+  theo chốt của user, kèm `mapping.txt` để decode stack trace bản minify).
   Tuyệt đối **không build APK trên máy dev** (đĩa `/home` chật, không có Android SDK) — quy tắc này
   nằm trong `.agents/skills/ai-assistant-phone-debug-apk/SKILL.md`.
 - `.plan/` **bị gitignore** (prompt nội bộ) ⇒ báo cáo phase không vào git; bản sao kiến thức đã vào

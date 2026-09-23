@@ -159,6 +159,26 @@ abstract final class CoachingConfig {
   static const Duration minimalStuckSilence = Duration(seconds: 8);
 }
 
+/// Cấu hình nhắc ranh giới đạo đức (P7 — mục 5.3 của kế hoạch).
+///
+/// Đây là **lời nhắc cho chính người dùng**, không phải tính năng pháp lý: không thu thập,
+/// không chặn, không ghi nhận vi phạm. Hiện **một lần duy nhất khi mở app lần đầu** (flag trong
+/// bảng `meta`), nội dung tĩnh để không phải giải thích thêm.
+abstract final class EthicsConfig {
+  /// Khoá flag "đã hiển thị" trong bảng `meta`. Chỉ ghi `'1'` sau khi dialog ĐÓNG (không ghi khi
+  /// mở — nếu app bị kill giữa chừng thì lần sau vẫn hiện lại, hướng an toàn).
+  static const String shownFlagKey = 'ethics_reminder_shown';
+
+  static const String dialogTitle = 'Trước khi dùng';
+
+  static const String dialogBody = 'Ứng dụng này hỗ trợ GIAO TIẾP CỦA CHÍNH BẠN.\n\n'
+      'Đừng dùng trong các cuộc trao đổi có nội dung riêng tư hoặc nhạy cảm thuộc về người khác '
+      '(sức khoẻ, tài chính, bí mật cá nhân...). Câu gợi ý do máy sinh ra chỉ để tham khảo — '
+      'bạn vẫn là người chịu trách nhiệm với lời nói của mình.';
+
+  static const String dialogConfirm = 'Tôi hiểu';
+}
+
 /// Cấu hình chế độ hiển thị nudge (P3 mục 4.8).
 abstract final class OutputConfig {
   /// Khoá lưu chế độ output trong bảng `meta` (dùng lại `ConfigStore` như P1D).

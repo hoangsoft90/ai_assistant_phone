@@ -10,6 +10,7 @@ cấp độ huấn luyện do người dùng tự chọn.
 | `session_summary.dart` | `SessionSummaryService` — tóm tắt phiên theo nhịp (4 nudge / 5 phút) | RAM (không log, không đĩa) |
 | `post_review_service.dart` | `PostReviewService.run()` → **3 mục** | RAM (màn hình) |
 | `weekly_stats.dart` | `WeeklyStatsService` → số liệu 7 ngày + xu hướng | không lưu (tính lại từ DB) |
+| `ethics_gate.dart` | `EthicsGate` — flag "đã hiện lời nhắc đạo đức" (P7 mục 4) | bảng `meta` (`ethics_reminder_shown`) |
 
 ## Nguyên tắc (ràng buộc xuyên phase từ P5)
 
@@ -26,6 +27,9 @@ cấp độ huấn luyện do người dùng tự chọn.
    (`_generation`) để kết quả của phiên cũ không rơi vào phiên mới.
 6. **Không log nội dung** tóm tắt/nudge/Pre-Brief (suy ra từ hội thoại thật — quyết định từ review P2);
    chỉ log số liệu + lý do lỗi (`lastNote` hiện trên màn hình chẩn đoán dòng `Coaching (P5)`).
+7. **Lời nhắc đạo đức (P7) là lời nhắc, không phải hợp đồng**: đọc/ghi flag lỗi ⇒ không ném (coi như
+   "chưa hiện" khi đọc lỗi; vẫn đặt RAM khi ghi lỗi — không hiện lại liên tục). Chỉ ghi flag SAU KHI
+   dialog đóng. KHÔNG biến nó thành màn hình cài đặt/điều khoản — prompt P7 giới hạn đúng vậy.
 
 ## Việc còn thiếu
 

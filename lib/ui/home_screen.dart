@@ -14,6 +14,7 @@ import '../audio/vad/conversation_state.dart';
 import '../audio/vad/conversation_state_notifier.dart';
 import '../audio/nudge_delivery.dart';
 import '../audio/output_mode_selector.dart';
+import '../coaching/ethics_gate.dart';
 import '../coaching/post_review_service.dart';
 import '../coaching/session_summary.dart';
 import '../coaching/training_level.dart';
@@ -29,6 +30,7 @@ import '../services/conversation_session_controller.dart';
 import '../services/foreground_service.dart';
 import '../services/permission_gate.dart';
 import '../services/storage/app_database.dart';
+import '../services/storage/meta_store.dart';
 import '../services/storage/secure_store.dart';
 
 /// Màn hình chính tối thiểu của P0.5.
@@ -96,6 +98,10 @@ class _HomeScreenState extends State<HomeScreen> {
   final SafeTtsOutput _safeTts = SafeTtsOutput.instance();
   StreamSubscription<TtsFallbackNotice>? _ttsFallbackSub;
 
+  /// P7 mục 4: lời nhắc ranh giới đạo đức hiện **một lần duy nhất** khi mở app lần đầu.
+  /// (`_ethicsDialogOpen` chặn hiện đúp khi `setState` dựng lại cây trong lúc dialog đang mở.)
+  bool _ethicsDialogOpen = false;
+
   SuggestionResult? _lastSuggestion;
   EffectiveNudgeOutput? _lastDelivery;
   NudgeOutputMode _outputMode = OutputModeSelector.defaultMode;
@@ -119,6 +125,40 @@ class _HomeScreenState extends State<HomeScreen> {
     unawaited(_refreshTts());
     unawaited(_loadOutputSettings()); // P3: chế độ hiển thị + tốc độ đọc đã lưu.
     unawaited(_loadCoachingSettings()); // P5: Pre-Brief đã lưu + Training Level.
+    unawaited(_maybeShowEthicsReminder()); // P7 mục 4: lời nhắc đạo đức, chỉ lần đầu.
+  }
+
+  /// P7 mục 4 (mục 5.3 kế hoạch): **lời nhắc ranh giới đạo đức** hiện một lần khi mở app lần
+  /// đầu — nhắc cho chính người dùng, không phải tính năng pháp lý: không chặn, không ghi nhận
+  /// vi phạm, không đụng audio/ASR/LLM. Nội dung + vị trí đặt theo đúng quy định của prompt.
+  ///
+  /// Vì sao dùng `showDialog` thay vì route đầu tiên: app có foreground service + khôi phục phiên,
+  /// người dùng có thể đang giữa một thao tác khi mở lại app; dialog trên `HomeScreen` không thay
+  /// đổi ngăn xếp điều hướng và không chặn việc đọc trạng thái của các loader khác.
+  Future<void> _maybeShowEthicsReminder() async {
+    final bool shown = await EthicsGate.load(const MetaConfigStore());
+    if (shown || !mounted || _ethicsDialogOpen) {
+      return;
+    }
+    _ethicsDialogOpen = true;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text(EthicsConfig.dialogTitle),
+        content: const Text(EthicsConfig.dialogBody),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text(EthicsConfig.dialogConfirm),
+          ),
+        ],
+      ),
+    );
+    // Đánh dấu "đã hiện" CHỈ SAU KHI dialog đóng: nếu app bị kill giữa chừng, lần mở sau vẫn
+    // thấy lời nhắc (hướng an toàn).
+    await EthicsGate.markShown(const MetaConfigStore());
+    _ethicsDialogOpen = false;
   }
 
   /// P5: nạp Pre-Brief đã lưu (dùng làm ngữ cảnh cho phiên đang chuẩn bị) + Training Level.
