@@ -1,83 +1,50 @@
 # runtime-permissions Specification
 
-> Baseline spec — mô tả hành vi ĐÃ implement (P0.5). Không phải đề xuất.
-> Nguồn sự thật: `lib/services/permission_gate.dart`, `android/app/src/main/AndroidManifest.xml`.
+> Baseline spec — mô tả hành vi ĐÃ implement (P0.5, mở rộng P1F). Cập nhật 2026-09-23: thêm quyền
+> `BLUETOOTH_CONNECT` (P1F) và `POST_NOTIFICATIONS`.
+> Nguồn sự thật: `lib/services/permission_gate.dart`, `android/app/src/main/AndroidManifest.xml`,
+> `test/app_smoke_test.dart`.
 
 ## Purpose
 
-Xin và kiểm tra các quyền runtime cần để foreground service `type=microphone` chạy được:
-từ Android 14, hệ thống **không cho** start foreground service `microphone` khi app chưa giữ
-`RECORD_AUDIO`; từ Android 13, notification của foreground service chỉ hiện khi đã cấp
-`POST_NOTIFICATIONS`. Ở giai đoạn hiện tại app chưa thu âm — quyền xin ở đây là plumbing bắt buộc
-của DoD P0.5 ("service chạy được, hiện notification"), không phải logic audio.
+Xin và kiểm soát 8 quyền của app. Mỗi quyền tồn tại cho đúng một nhu cầu thật — KHÔNG xin quyền
+"phòng khi". App không được chết khi thiếu quyền: màn hình chính hiện trạng thái để người dùng tự
+bổ sung.
 
 ## Requirements
 
-### Requirement: Xin quyền trước khi bật service
+### Requirement: Bộ quyền tối thiểu đủ 8 nhu cầu thật
 
-`PermissionGate.ensureServicePermissions()` (`lib/services/permission_gate.dart:18-24`) **PHẢI (MUST)**:
-1. `Permission.microphone.request()`
-2. `Permission.notification.request()`
-3. Ghi log cả 2 trạng thái với tên status (`microphone=<name>, notification=<name>`)
-4. Return `true` **chỉ khi** quyền microphone `isGranted`; trạng thái notification **không** ảnh
-   hưởng giá trị trả về
+Manifest **PHẢI (MUST)** khai báo và `PermissionGate` **PHẢI (MUST)** kiểm các quyền sau (mỗi quyền
+kèm nhu cầu — không bỏ được cái nào theo audit P7):
 
-#### Scenario: Người dùng cấp cả hai quyền
+1. `RECORD_AUDIO` — thu mic (P1A). Bị từ vĩnh viễn ⇒ hiển thị hướng dẫn (K13: chưa có `openAppSettings()`).
+2. `POST_NOTIFICATIONS` — thông báo (Android 13+; Android 12 trở xuống quyền không tồn tại — `pm grant` báo lỗi `Unknown permission` là bình thường).
+3. `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_MICROPHONE` — service nghe nền.
+4. `BLUETOOTH_CONNECT` — **đọc thiết bị audio Bluetooth để TTS phát ra tai nghe (P1F)**. Thiếu quyền này ⇒ SafeTts không nhìn thấy tai nghe ⇒ không bao giờ phát (fail-closed).
+5. `VIBRATE` — rung báo khi không phát được (P1F/P3).
+6. `INTERNET` — **CHỈ** cho LLM (P2). Audio hội thoại KHÔNG được đi qua quyền này (ràng buộc #4).
+7. `<queries> TTS_SERVICE` — tìm engine TTS (P1F).
 
-- **GIVEN** app chưa có quyền mic và notification
-- **WHEN** `ensureServicePermissions()` được gọi
-- **THEN** hệ thống hiện 2 dialog xin quyền (mic trước, notification sau); nếu người dùng cấp cả hai, hàm ghi log "quyền: microphone=granted, notification=granted" và return `true`
+#### Scenario: Máy Android 12 thiếu BLUETOOTH_CONNECT
 
-#### Scenario: Người dùng từ chối quyền mic nhưng cấp notification
+- **GIVEN** app cài trên Android 12 mà quyền `BLUETOOTH_CONNECT` chưa cấp
+- **WHEN** SafeTtsOutput đọc danh sách thiết bị output
+- **THEN** không thấy tai nghe ⇒ mọi phát bị chặn fail-closed (không crash) — đúng lý do hướng dẫn test yêu cầu cấp đủ 3 quyền runtime trước khi test TTS
 
-- **GIVEN** người dùng từ chối `RECORD_AUDIO` nhưng cấp `POST_NOTIFICATIONS`
-- **WHEN** `ensureServicePermissions()` chạy
-- **THEN** hàm return `false` (chỉ quyền mic quyết định) — hệ quả: `ListeningService.start()` sẽ **không** gọi `startService`
+#### Scenario: Quyền notification không tồn tại
 
-#### Scenario: Người dùng từ chối vĩnh viễn (don't ask again)
+- **GIVEN** app chạy trên Android 12 (API 31 — `POST_NOTIFICATIONS` ra đời ở API 33)
+- **WHEN** cố grant/quyền được kiểm
+- **THEN** hệ thống báo quyền không tồn tại; app KHÔNG chết và vẫn hoạt động (bằng chứng buổi test adb 2026-09-23)
 
-- **GIVEN** quyền mic đang ở trạng thái `permanentlyDenied`
-- **WHEN** `ensureServicePermissions()` chạy
-- **THEN** `request()` không hiện dialog nữa; hàm return `false`. **Code hiện không mở settings cho
-  người dùng** (không có lời gọi `openAppSettings()`) — người dùng không có đường thoát trong app
+### Requirement: Trạng thái quyền hiện trên UI
 
-### Requirement: Đọc trạng thái quyền không xin thêm
+Màn hình chính **PHẢI (MUST)** hiển thị dòng `Quyền` dạng `name=có/không · …` từ kết quả kiểm của
+`PermissionGate` — người dùng (và người test) nhìn thấy ngay thiếu quyền nào.
 
-`PermissionGate.currentStatus()` (`permission_gate.dart:26-29`) **PHẢI (MUST)** trả về
-`Map<String, bool>` với đúng 2 khóa `'microphone'` và `'notification'`, giá trị là
-`isGranted` tương ứng, **mà không** hiện dialog xin quyền nào.
+#### Scenario: Thiếu microphone
 
-#### Scenario: UI đọc trạng thái để hiển thị
-
-- **GIVEN** app đang chạy, người dùng chưa thao tác gì thêm
-- **WHEN** `currentStatus()` được gọi (từ `HomeScreen._refreshStatus()`)
-- **THEN** trả về map `{microphone: <bool>, notification: <bool>}` phản ánh trạng thái cấp hiện tại; không có dialog nào xuất hiện
-
-### Requirement: Quyền khai báo trong Manifest
-
-7 quyền khai báo tĩnh (`AndroidManifest.xml:5-14`): `RECORD_AUDIO`, `FOREGROUND_SERVICE`,
-`FOREGROUND_SERVICE_MICROPHONE`, `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`, `INTERNET`, `WAKE_LOCK`.
-Quyền runtime **PHẢI (MUST)** nằm trong danh sách mà `PermissionGate` xin (mic, notification) hoặc
-được ghi chú rõ là "khai báo cho tương lai" (BLUETOOTH_CONNECT, INTERNET — xem Cần làm rõ).
-
-#### Scenario: Quyền mic được xin có trong Manifest
-
-- **GIVEN** Manifest đã khai báo `RECORD_AUDIO` (:5)
-- **WHEN** `Permission.microphone.request()` chạy
-- **THEN** hệ thống hiện dialog xin quyền (nếu Manifest thiếu quyền này, plugin sẽ fail — đây là điều kiện để scenario "Xin quyền" ở trên chạy được)
-
-## Cần làm rõ
-
-1. **`permanentlyDenied` không có đường thoát trong app** (không gọi `openAppSettings()`). Người dùng
-   từ chối vĩnh viễn sẽ không thể bật service bao giờ, và UI chỉ báo "Không bật được service (thiếu
-   quyền micro?)". Chưa rõ ý định: bỏ sót hay cố ý để sau (P1A mới thật sự cần mic)?
-2. **Kết quả xin quyền notification bị bỏ qua** — `ensureServicePermissions()` chỉ return theo mic
-   (:22-24). Nếu notification bị từ chối, service vẫn start nhưng notification có thể không hiện
-   (Android 13+). Không có cảnh báo nào cho người dùng trong trường hợp này; chưa rõ có phải chủ ý.
-3. **`BLUETOOTH_CONNECT` và `INTERNET` được khai báo nhưng không xin runtime ở đâu trong code** —
-   `PermissionGate` chỉ đụng mic + notification. `BLUETOOTH_CONNECT` là quyền runtime (Android 12+)
-   nên về lý thuyết cũng phải xin; hiện không ai xin và không ai dùng (thuộc P1F). `INTERNET` là
-   quyền thường. Cả hai đều là khai báo "cho tương lai" — phù hợp ghi chú P0.5 nhưng cần quyết định
-   khi nào xin thật.
-4. **Không có test nào cho `PermissionGate`** — hành vi "return chỉ theo mic" chỉ được đảm bảo bằng
-   code, chưa có test khoá hành vi này.
+- **GIVEN** `RECORD_AUDIO` bị từ chối
+- **WHEN** màn hình chính vẽ bảng trạng thái
+- **THEN** dòng `Quyền` hiện `microphone=không`; bấm "Bật lắng nghe" không mở được mic và báo lỗi có kiểm soát

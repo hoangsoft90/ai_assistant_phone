@@ -23,9 +23,10 @@ Lưu **transcript thô có timestamp** của phiên hội thoại đang diễn r
 |---|---|
 | `lib/transcript/transcript_segment.dart` | `TranscriptSegment{text, timestamp}` — **đúng 2 trường**, không có `speaker`/`label`. |
 | `lib/transcript/transcript_store.dart` | `TranscriptStore`: `init()`, `attach(engine)`, `detach()`, `add(text)`, `markPushMoment(at)`, `recentWindow({window})`, `close()`; `TranscriptWindow{segments, lastPushMoment, text}`; `instance()` (bản dùng chung cho app). |
-| `lib/services/storage/transcript_dao.dart` | `TranscriptDao` (interface) + `SqliteTranscriptDao` (bản thật) + `TranscriptSession`. |
-| `lib/services/storage/app_database.dart` | Schema v2: `_createTranscriptSchema()` dùng chung cho `onCreate` (máy mới) và `_onUpgrade` (v1→v2). |
-| `lib/core/constants.dart` | `databaseVersion = 2`, `transcriptRollingWindow` (8′), `transcriptResumeGap` (30′), `transcriptRetention` (7 ngày). |
+| `lib/services/storage/transcript_dao.dart` | `TranscriptDao` (interface) + `SqliteTranscriptDao` (bản thật) + `TranscriptSession{id, startedAt, lastActivityAt, title?}`; `renameSession(id, title?)` (P5.2). |
+| `lib/transcript/session_display_name.dart` | `SessionDisplayName` (P5.2): `of(session)` (tên đã đặt, fallback timestamp), `defaultFrom()`, `timestamp()`, `normalize()` (rỗng⇒NULL, cắt 60). |
+| `lib/services/storage/app_database.dart` | `_createTranscriptSchema()` + `_createPostReviewSchema()` + `_addSessionTitleColumn()` — mỗi helper dùng chung cho `onCreate` và nhánh migration tương ứng. |
+| `lib/core/constants.dart` | `databaseVersion = 4`, `transcriptRollingWindow` (8′), `transcriptResumeGap` (30′), `transcriptRetention` (7 ngày, chỉnh được — P5.1). |
 | `lib/ui/home_screen.dart` | Dòng "Transcript" / "Push gần nhất" + nút "Đánh dấu Push (P1E)" (tạm, để kiểm trên máy). |
 | `lib/main.dart` | `TranscriptStore.instance().init()` trong bootstrap (khôi phục + xoá dữ liệu cũ, **không** phụ thuộc việc người dùng bật ASR). |
 
@@ -38,11 +39,11 @@ cloud ASR và chỉ khi có Wi-Fi).
 
 | Bảng | Cột | Ghi chú |
 |---|---|---|
-| `transcript_sessions` | `id`, `started_at_ms`, `last_activity_at_ms` | Không có `ended_at`: phiên mới khi im lặng quá 30′. |
+| `transcript_sessions` | `id`, `started_at_ms`, `last_activity_at_ms`, `title` (NULL được) | Không có `ended_at`: phiên mới khi im lặng quá 30′. `title` (P5.2) = tên người dùng đặt; `NULL` ⇒ hiển thị tên mặc định qua `SessionDisplayName`. |
 | `transcript_segments` | `id`, `session_id`, `timestamp_ms`, `text` | Index `(session_id, timestamp_ms)`. |
 | `transcript_pushes` | `id`, `session_id`, `timestamp_ms` | Ghi **mọi** lần bấm Push. |
 
-- DB: `ai_assistant.db` **version 2** (v1 = chỉ bảng `meta`).
+- DB: `ai_assistant.db` **version 4** (v1 = chỉ `meta`; v2 = 3 bảng transcript; v3 = `post_review_reports`; v4 = cột `title`).
 - Không dùng FOREIGN KEY (sqflite không bật `PRAGMA foreign_keys` mặc định) — xoá theo phiên làm tường
   minh trong 1 transaction.
 - **Chưa mã hoá** (K28): `sqflite` không hỗ trợ; chuyển sang `sqflite_sqlcipher` là việc của một quyết
@@ -64,6 +65,10 @@ cloud ASR và chỉ khi có Wi-Fi).
   bấm để đối chiếu với gợi ý.
 - **Đừng bump `databaseVersion` mà không thêm nhánh trong `_onUpgrade`** — máy đã cài app sẽ crash khi
   mở DB.
+- **Đừng nhét `title` vào `CREATE TABLE transcript_sessions`** (trong `_createTranscriptSchema`): helper
+  đó còn được nhánh `oldVersion < 2` gọi, nên nhánh `< 4` sẽ `ALTER` lên bảng vừa tạo đã có cột ⇒
+  `duplicate column name` (đã chứng minh bằng sqlite3 thật, 2026-09-23). Cột `title` phải chỉ được thêm
+  ở `_addSessionTitleColumn()` — đúng một chỗ, mọi đường chỉ thêm một lần.
 - Sửa `attach()/detach()` phải giữ mẫu **capture-trước-khi-xoá** (bug race đã bị test bắt ở P1E — xem
   A33 trong `LESSONS_LEARNED.md`). Nếu lint `cancel_subscriptions` phản đối, giữ nguyên lối race-safe và
   dùng `// ignore` có chú thích, **không** "sửa cho vừa lint".

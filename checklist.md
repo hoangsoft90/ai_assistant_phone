@@ -3,6 +3,19 @@
 Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, `.plan/P0_5-result.md`,
 `spikes/p0_audio/README.md`, `README.md`.
 
+## Buổi test adb 2026-09-23 (agent tự chạy trên Pixel 3a)
+
+> Chi tiết + bằng chứng từng dòng: `.plan/ADB-TEST-result.md`. Phần còn lại của buổi test là việc
+> của người — giáo trình ở **`human.md`** (gốc repo, local-only).
+
+- [x] T0: dialog đạo đức P7 đúng 1 lần; quyền mic+BT; FGS + mic thu thật (dumpsys).
+- [x] T3: **ASR PhoWhisper nhận dạng THẬT** — 4 dòng transcript tiếng Việt vào DB trên máy.
+- [x] T5: **TC2 đạt** — không tai nghe ⇒ `SILENT_FALLBACK` + rung, 0 AudioTrack, không phát loa.
+- [x] T9: đổi engine khi đang nghe ⇒ tắt phiên + ghi config, cả 2 chiều PhoWhisper↔Vosk.
+- [x] T7: crash recovery — force-stop ⇒ mở lại nguyên phiên, đủ segments.
+- [x] Đường bảo vệ K47 hoạt động thật (transcribe >5s ⇒ KHÔNG free model, không crash).
+- [ ] TC1/TC3 (tai nghe + tai người) · nudge Groq (cần key) · VAD giọng thật · half-duplex · phiên 30′ → **chờ human theo `human.md`** (gộp vào K34/K39/K42/K46/K48/K51).
+
 ## Đã làm
 
 ### P0 — phần không cần thiết bị
@@ -244,8 +257,14 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [ ] **Test case 3:** tắt kết nối Bluetooth trong Cài đặt **giữa lúc đang đọc** — chưa có tai nghe BT.
 - [ ] **K37 — F-P1F-1:** callback baseline của `registerAudioDeviceCallback` bị coi là "kết nối lại"
   ⇒ mỗi lần mở app có tai nghe sẵn đều đòi bấm Xác nhận. **Chưa sửa** (P3 làm xong mà không đụng tới,
-  vì đây là đường an toàn của P1F); vẫn đang làm mỗi buổi test máy thật tốn thêm 1 bước thủ công ⇒
-  nên sửa ngay trước buổi test gộp (K34/K39/K41/K42).
+  vì đây là đường an toàn của P1F).
+  ⚠️ **Cập nhật 2026-09-23 — KHÔNG sửa trước buổi test** (ý kiến cũ "nên sửa ngay trước buổi test gộp"
+  đã bị bác, ghi lại lý do để lần sau không tự ý sửa): cổng xác nhận này đang **gánh an toàn thay cho
+  K36** — app chưa phân biệt được tai nghe A2DP với **loa Bluetooth** (cùng `TYPE_BLUETOOTH_A2DP`), mà
+  đây là phễu duy nhất để con người kiểm route. Bỏ xác nhận ở baseline ⇒ có thể **đọc tiếng ra loa BT
+  mà người dùng chưa từng đồng ý** (vi phạm ràng buộc #3). Sửa đúng: làm **cùng lúc K36** + **verify
+  trên máy thật** (vùng loại trừ Ponytail, rule 12). Giá phải trả hiện tại: **1 lần bấm thêm mỗi lần
+  mở app** — chấp nhận được, và `TESTING.md` §5 đã ghi rõ cho người test.
 
 ### Thuộc P1G (code xong 2026-09-22 — chưa build/máy thật)
 
@@ -381,3 +400,20 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [ ] `.plan/` đang bị gitignore → `.plan/P0_5-result.md` sẽ không vào git. Có muốn copy sang `docs/` không?
 - [ ] **K28 — transcript có cần mã hoá DB không?** (`sqflite` không hỗ trợ; phải đổi package sang `sqflite_sqlcipher` + chuyển dữ liệu cũ). Hiện dựa vào sandbox app + xoá sau 7 ngày.
 - [ ] Có cho phép tôi tạo skill từ `LESSONS_LEARNED.md` trong `~/.agents/skills/` không? (Theo `writing-skills`, cần chạy baseline test trước.)
+
+## Buổi 2026-09-23 (chiều) — Tối ưu N+1 HistoryScreen + đồng bộ tài liệu + tách commit
+
+### Đã làm
+
+- [x] **Tối ưu N+1 (dự án cũ từ review P5.1):** `TranscriptDao.sessionIdsWithReport()` — 1 query `SELECT DISTINCT session_id`; `HistoryScreen._load` dùng (101 query → **2 query**); 4 fake DAO cập nhật; +2 test hợp đồng (bảng có báo cáo / bảng trống). **373/373 pass, analyze sạch**; spec `transcript-store` thêm Requirement "Truy vấn Lịch sử theo hợp đồng DAO" (18/18 validate).
+- [x] Đồng bộ: `openspec/specs/transcript-store/spec.md`, `features.md`, `next.md`, `faq.md`, `LESSONS_LEARNED.md` (A60/A61), `working.md`.
+- [x] Viết `result_20260923-*.txt` (kết quả buổi) + `handoff_20260923-*.md` (tóm tắt phiên).
+- [x] **Tách commit P2.1/P5.1/P5.2/P5.3 + docs, push để CI build APK** (user ra lệnh trực tiếp).
+
+### Chưa làm / cần hỏi lại (cập nhật buổi này)
+
+- [ ] ⚠ **Chưa verify trên máy thật** các phần P2.1/P5.1/P5.2/P5.3 (migration DB có sẵn, đổi tên phiên, retention, cấu hình LLM endpoint, nav 4 tab) — gộp K51, cần APK mới từ CI.
+- [ ] **K50 nay thu hẹp:** Post-Review **đã** persist (P5.1) — nợ còn lại chỉ là "xem lại báo cáo từ Lịch sử trên máy thật".
+- [ ] Hỏi lại: có giữ `human.md`/`TESTING.md` local-only (không commit) như hiện tại không? (hiện 2 file này ở ngoài git theo `.gitignore` custom).
+
+## Cần làm (thứ tự đề xuất — cũ, để tham chiếu)

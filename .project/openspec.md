@@ -13,7 +13,7 @@ Cập nhật: 2026-09-23 (+07, sau P5).
 | Tool đã cài (adapter) | `antigravity`, `claude`, `opencode` — tất cả up to date, **không drift** |
 | Profile | 6 workflow đang bật |
 | **Changes đang mở** | **KHÔNG CÓ** (`openspec list` → *No active changes*) |
-| **Specs đã chốt** | **KHÔNG CÓ** (`openspec/specs/` chỉ có `.gitkeep`) |
+| **Specs đã chốt** | **18 specs** (baseline P0.5 → P7, đầy đủ toàn bộ năng lực đã code — cập nhật 2026-09-23): `app-bootstrap`, `app-core`, `app-storage`, `audio-session-config`, `diagnostics-home-screen`, `listening-foreground-service`, `runtime-permissions` (+BT/notification), **mới: `audio-capture` (P1A), `conversation-vad` (P1B), `asr-engines` (P1C/D), `transcript-store` (P1E), `tts-safety` (P1F), `emergency-phrase` (P1G), `suggestion-engine` (P2), `trigger-output` (P3), `pipeline-session` (P4), `coaching` (P5), `ethics-reminder` (P7)** — `openspec validate --specs` → **18 passed, 0 failed** |
 | `openspec/config.yaml` | ✅ đã điền `context` (tech stack + 5 ràng buộc cứng + quy ước tên) và `rules` cho `proposal`/`tasks`; đã parse lại bằng `yaml.safe_load` → hợp lệ |
 
 **Vì sao chưa có change nào:** P0 là spike thăm dò (không thay đổi schema/API), P0.5 là bootstrap khung.
@@ -61,11 +61,11 @@ dự kiến là P1A/P1B.
 | K3 | **Chưa chốt ASR mặc định** (PhoWhisper hay Vosk) — nợ kỹ thuật treo từ P0 | 🟠 vừa | `next.md`, `.plan/P0-result.md` |
 | K4 | **APK chưa từng được build** ⇒ Gradle/AGP 9.1/Kotlin 2.4.0/plugin chưa biên dịch lần nào | 🟠 vừa | `.plan/P0_5-result.md` |
 | K5 | **Vosk trả về RỖNG với audio nhỏ tiếng** — cần AGC/kiểm soát gain ở P1A nếu chọn Vosk | 🟠 vừa | `spikes/p0_audio/reports/*.json` |
-| K6 | **Code spike còn sót `TtsTest` phát trực tiếp** — không được tái sử dụng; prompt P0.5 nói phải "thay thế hoàn toàn" code thăm dò | 🟠 vừa (an toàn) | `spikes/p0_audio/`, `checklist.md` |
+| K6 | **Code spike còn sót `TtsTest` phát trực tiếp** — không được tái sử dụng; prompt P0.5 nói phải "thay thế hoàn toàn" code thăm dò. **2026-09-23:** vẫn **không** được tái sử dụng (rà lại lần 3, xác nhận); `spikes/` nay còn **428K** (chỉ code + docs), models đã chuyển ra `/tmp/p0spike-models` ⇒ câu hỏi "xoá hay giữ thư mục" nhẹ đi rất nhiều | 🟠 vừa (an toàn) | `spikes/p0_audio/`, `checklist.md` |
 | K7 | **Chưa có state management** ⇒ mốc bắt buộc chốt trước P1B | 🟡 thấp | [state-routing.md](state-routing.md) |
 | K8 | **Chưa có CI/CD, chưa có keystore release** | 🟡 thấp | [integrations.md](integrations.md) |
 | K9 | **Design system chưa có** + vài giá trị màu/chữ hardcode trong `home_screen.dart` | 🟡 thấp | [design-system.md](design-system.md) |
-| K10 | **`/home` chỉ còn ~396MB** — chưa đủ chỗ build Gradle tại máy dev | 🟡 thấp | `.plan/P0_5-result.md` |
+| K10 | **`/home` chật** — chưa đủ chỗ build Gradle tại máy dev. **Cập nhật 2026-09-23:** đã dọn 48MB rác tái tạo được trong `spikes/p0_audio/` + chuyển 133MB `models/` sang `/tmp/p0spike-models` ⇒ **364MB trống** (trước 185MB). Vẫn **giữ nguyên quy tắc: KHÔNG build APK ở máy dev** (không có Android SDK) | 🟡 thấp | `.plan/P0_5-result.md`, `working.md` 2026-09-23 |
 | K11 | **Mã Kotlin của P1A chưa từng được biên dịch** — chỉ review thủ công + kiểm ngoặc + đối chiếu API plugin | 🔴 cao | `.plan/P1A-result.md` mục Sai khác 8 |
 | ~~K12~~ | ~~`chunkMs=100` chưa đối chiếu ngưỡng VAD~~ → **đã giải quyết ở P1B**: VAD chia khung 20ms ngay ở native, không cần hạ `chunkMs` của luồng PCM | ✅ xong | `.plan/P1B-result.md` mục Sai khác 1 |
 | K14 | **Dependency JitPack (`android-vad:webrtc:2.0.10`) + toàn bộ mã Kotlin P1B chưa từng được biên dịch** — chỉ kiểm bằng đọc source + HTTP 200 của artifact | 🔴 cao | `.plan/P1B-result.md` mục Sai khác 6 |
@@ -79,7 +79,7 @@ dự kiến là P1A/P1B.
 | **K34** | **P1F: 3 test case bắt buộc (rút tai nghe giữa lúc đọc / rút trước khi đọc / tắt kết nối khi đang đọc) CHƯA chạy trên máy thật** — unit test chỉ khoá logic Dart, không chứng minh được "không lọt ra loa ngoài". Đây là phase an toàn quan trọng nhất của app nên **không được** coi là xong | 🔴 cao | `.plan/P1F-result.md`, `.project/modules/tts-safety.md` mục 6 |
 | **K35** | **Half-duplex chưa nối** (đang thu thì không phát TTS và ngược lại) — ràng buộc #5 của `overview.md`; `SafeTtsOutput` không giữ tham chiếu tới tầng capture. Việc ghép là P4 | 🟠 vừa | `.project/modules/tts-safety.md` mục 7 |
 | **K36** | **Giới hạn nhận dạng thiết bị + engine TTS**: (a) không phân biệt được tai nghe A2DP với loa Bluetooth A2DP (cùng `TYPE_BLUETOOTH_A2DP`) ⇒ loa BT cũng bị coi là "riêng tư"; (b) kênh TTS chỉ đăng ký cho engine UI nên chưa phát được khi app ở nền (P3/P4 cần) | 🟡 thấp | `.project/modules/tts-safety.md` mục 7 |
-| **K37** | **F-P1F-1 — đòi xác nhận sai:** callback đầu của `registerAudioDeviceCallback` (baseline khi đăng ký) bị Dart phân loại thành "kết nối lại" ⇒ **mỗi lần mở app có tai nghe cắm sẵn đều phải bấm "Xác nhận tai nghe" trước khi đọc được**. Fail-closed (an toàn) nhưng phiền; sửa = phân biệt baseline với reconnect thật | 🟠 vừa | `.plan/P1F-result.md` mục "Cập nhật sau buổi test qua adb" |
+| **K37** | **F-P1F-1 — đòi xác nhận sai:** callback đầu của `registerAudioDeviceCallback` (baseline khi đăng ký) bị Dart phân loại thành "kết nối lại" ⇒ **mỗi lần mở app có tai nghe cắm sẵn đều phải bấm "Xác nhận tai nghe" trước khi đọc được**. Fail-closed (an toàn) nhưng phiền; sửa = phân biệt baseline với reconnect thật. ⚠️ **2026-09-23 — hoãn có lý do, KHÔNG sửa vội:** cổng này đang **gánh an toàn** thay cho **K36** (chưa phân biệt tai nghe ↔ loa BT) ⇒ bỏ xác nhận ở baseline = có thể đọc ra **loa Bluetooth**. Chỉ sửa **cùng lúc K36 + có máy thật** | 🟠 vừa (nhưng sửa sớm sẽ 🔴) | `.plan/P1F-result.md` mục "Cập nhật sau buổi test qua adb" |
 | ~~K38~~ | ~~Emergency Phrase chưa có gesture thật~~ → **đóng ở P3**: nút nổi giữ **đúng 2 giây** (`lib/ui/floating_button.dart`, test đo mốc 2s); chỉ còn verify trên máy (K42) | ✅ xong | `.plan/P3-result.md` |
 | **K39** | **P2: 5 mục DoD chưa verify trên máy thật** — cần APK mới + **Groq API key lưu qua `SecureStore`**. ⚠️ P3 đã thêm **nút nhập key ngay trong app** (trước đó không có chỗ ghi key ⇒ DoD-1 bất khả thi trên máy). Cụ thể: (a) Push khi `notUserSpeaking` ⇒ nudge hiện trên UI; (b) Push khi `userSpeaking` ⇒ **không request nào đi** (kiểm bằng logcat + `dumpsys`); (c) anti-repetition 2 lần trong 2 phút; (d) ngắt mạng ⇒ `NO_SUGGESTION` sau ~4s, không treo; (e) JSON lỗi ⇒ không crash. | 🔴 cao (chặn chất lượng P2) | `.plan/P2-result.md` |
 | ~~K40~~ | ~~P2: chưa có Offline Nudge Cache (mục 4.12)~~ → **đóng ở P3**: 72 câu asset (`assets/offline_nudge_cache.json`), fallback **chỉ** khi không dùng được LLM, có đánh dấu nguồn `NudgeSource.cache` | ✅ xong | `.plan/P3-result.md` |
@@ -100,23 +100,36 @@ dự kiến là P1A/P1B.
 1. **Tải APK debug mới nhất từ CI → cài máy thật → chạy 1 vòng protocol đo** cho **tất cả** phase
    đang nợ: **P5 (K48 — gộp vào cùng phiên: Pre-Brief/Training Level/Post-Review/số liệu)**, **P4 (K46 — cần phiên thật ≥30′, nên đây là lượt test quan trọng nhất)**, **P3 (K42/K41)**, **P2 (K39)**, **P1F (3 test case TTS, K34)**, P0 Task 2/3 (K2), P1E (`am kill` + đổi ngày 8 ngày), P1D (2 engine, 45′), P1B (ngưỡng VAD bằng giọng thật),
    P1A/P0.5 (quyền, FGS, DB, `becomingNoisy`), P0 (A2DP/HFP). Đây là điểm chặn chất lượng của 7 phase.
-   Giáo trình gộp một lượt ~45′ nằm ở `next.md` mục "Buổi test máy thật sắp tới".
-   Làm **K37** (đòi xác nhận mỗi lần mở app) trước buổi test cho đỡ tốn thao tác tay.
+   Giáo trình gộp một lượt ~45′ nằm ở `next.md` mục "Buổi test máy thật sắp tới"; hướng dẫn thao tác
+   từng bước (đã viết lại khớp code 2026-09-23) ở **`TESTING.md`** — file local-only, không commit.
+   ⚠️ **KHÔNG sửa K37 trước buổi test** (ý kiến cũ ở đây đã bị bác — lý do): cổng "xác nhận tai nghe"
+   mỗi lần mở app là **fail-closed ĐANG gánh an toàn** cho tới khi **K36** xong. App chưa phân biệt được
+   tai nghe A2DP với **loa Bluetooth** (cùng `TYPE_BLUETOOTH_A2DP`), mà phễu duy nhất để con người kiểm
+   route chính là bước xác nhận thủ công đó ⇒ bỏ nó ở callback baseline = có thể **đọc tiếng ra loa BT
+   mà người dùng chưa từng đồng ý**. Sửa đúng phải làm **cùng lúc với K36** + **verify trên máy thật**
+   (vùng loại trừ Ponytail — rule 12). Giá phải trả hiện tại chỉ là **một lần bấm thêm mỗi khi mở app**.
 2. Vá ngưỡng/logic theo số liệu máy thật (VAD K15, engine mặc định K3/K18, Vosk K20/K21).
 2b. **K43** — trigger ngoài app (thông báo → volume key → nút tai nghe BT); bắt đầu từ notification
    action, sau khi P4 có engine nền (K36).
 3. Chốt **K28** (có mã hoá DB transcript không) trước khi phát hành cho người khác dùng.
-4. Quyết định số phận `spikes/p0_audio/` (**K6**).
-5. Cân nhắc tạo OpenSpec change chính thức cho các capability đã code (baseline specs hiện chỉ có từ
-   P0.5 — `openspec/specs/` thiếu P1A–P1E; xem mục 1 và `checklist.md`).
+4. ~~Quyết định số phận `spikes/p0_audio/` (**K6**)~~ → **đã xử lý phần an toàn được (2026-09-23):**
+   giữ thư mục (428K) làm tài liệu/giáo trình P0; dọn rác tái tạo được (48MB) + chuyển 133MB models
+   ra `/tmp/p0spike-models` (tái tạo được bằng `tools/convert_phowhisper.sh`, ~10 phút). Việc còn lại
+   chỉ là quyết định **xoá hẳn hay không** — chờ user, không tự xoá (không hoàn tác được).
+5. ~~Cân nhắc tạo OpenSpec change cho capability đã code~~ → **ĐÃ LÀM (2026-09-23, user chọn hướng
+   "baseline specs"):** 10 specs mới + cập nhật `runtime-permissions` phủ toàn bộ P1A→P7 (mỗi spec có
+   Purpose/Requirements/Scenario + `file:line` nguồn sự thật; các quyết định kiến trúc + lỗi đã sửa
+   (K45/A54, H1-H3, R1) được ghi ngay trong scenario). Chỉ còn thiếu **P6** (semi-auto — chưa code).
+   Lưu ý: các specs mới là **baseline** (mô tả hành vi đã implement, kèm nợ chưa verify như K37/K41/K45
+   ngay trong scenario) — KHÔNG phải cam kết đã-test-máy-thật; phần verify vẫn thuộc K51.
 
 ## 5. Việc cần hỏi người dùng (đang treo)
 
-- [ ] Repo GitHub nào + có dựng workflow build APK ngay không?
-- [ ] Có commit phần P0 + P0.5 hiện tại không? (repo **0 commit** — xem mục 6)
-- [ ] Xoá hay giữ `spikes/p0_audio/`?
-- [ ] Cho phép xoá model f16/vosk-bản-lớn trong `/tmp/p0spike` để lấy chỗ build?
-- [ ] `.plan/` bị gitignore → có copy báo cáo phase sang thư mục được commit không?
+> Đã trả lời trong các phiên trước (dọn khỏi danh sách treo): repo + 2 workflow build APK (**`hoangsoft90/ai_assistant_phone`**, `build-debug-apk.yml` + `build-release-apk.yml`) · commit P0/P0.5 và mọi phase (**repo đã có lịch sử commit**) · chưa signing release (chốt ở P7).
+
+- [ ] **Xoá hẳn hay giữ `spikes/p0_audio/`?** (nay chỉ 428K, models đã ra `/tmp/p0spike-models`)
+- [ ] Có xoá `/tmp/p0spike-models` (133MB, tái tạo được ~10 phút) không?
+- [ ] `.plan/` **và `TESTING.md`** bị gitignore/local-only → có copy báo cáo phase + hướng dẫn test sang thư mục được commit không?
 - [ ] **K28:** transcript có cần DB mã hoá (SQLCipher) không?
 - [ ] Cho phép tạo skill từ `LESSONS_LEARNED.md` không?
 
@@ -130,4 +143,11 @@ dự kiến là P1A/P1B.
   Tuyệt đối **không build APK trên máy dev** (đĩa `/home` chật, không có Android SDK) — quy tắc này
   nằm trong `.agents/skills/ai-assistant-phone-debug-apk/SKILL.md`.
 - `.plan/` **bị gitignore** (prompt nội bộ) ⇒ báo cáo phase không vào git; bản sao kiến thức đã vào
-  `working.md`/`checklist.md`/`LESSONS_LEARNED.md` (được commit).
+  `working.md`/`checklist.md`/`LESSONS_LEARNED.md` (được commit). **`TESTING.md` ở gốc repo cũng là
+  file LOCAL-ONLY** — user cố ý giữ ngoài git (đã loại khỏi mọi commit từ P4), nên **không tạo bản sao
+  trong `.project/`** và **không** tự ý coi nó là tài liệu đã ban hành. Cả hai chỉ tồn tại ở máy dev này.
+- **Vật nặng không nằm trong git:** model ASR của spike nay ở `/tmp/p0spike-models` (133MB) —
+  `ggml-phowhisper-base-q5_0.bin` (bản **không** ship trong APK, chỉ để đo lại nếu tiny kém),
+  `ggml-phowhisper-tiny-q5_0.bin` (**trùng sha256** với asset đã ship), `vosk-model-small-vn-0.4/`
+  (CI tự tải về khi build), `transcripts.tsv`. `/tmp` có thể bị xoá khi reboot ⇒ chỉ mất thời gian
+  convert lại, không mất dữ liệu người dùng.

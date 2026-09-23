@@ -1,6 +1,6 @@
 # faq.md — Thắc mắc & hiểu sai thường gặp
 
-Cập nhật: 2026-09-21. Mỗi mục nêu câu trả lời + căn cứ (file/mục trong plan, hoặc số liệu đo được).
+Cập nhật: 2026-09-23 chiều. Mỗi mục nêu câu trả lời + căn cứ (file/mục trong plan, hoặc số liệu đo được).
 
 **Q: P0 đã xong chưa?**
 Chưa. P0 **chưa hoàn thành**: 0/5 mục Definition of Done đạt, vì toàn bộ DoD là đo đạc trên điện thoại thật mà hiện chưa có thiết bị. Đã xong phần chuẩn bị không cần thiết bị. Căn cứ: `.plan/P0-result.md`.
@@ -9,7 +9,7 @@ Chưa. P0 **chưa hoàn thành**: 0/5 mục Definition of Done đạt, vì toàn
 Không. Đây là **code thăm dò (throwaway)** của P0, sẽ không mang sang P0.5 (prompt P0 nói rõ). Chỉ có `tools/` (convert model, đo WER) và kinh nghiệm JNI/audio là tái sử dụng được cho P1C/P1D.
 
 **Q: Tại sao nhất định không dùng cloud ASR cho chiều thu, dù khó tích hợp?**
-Vì đây là **ràng buộc kiến trúc cứng**, không phải tối ưu chi phí: chiều thu phải chạy 100% on-device, không quota ẩn, không phụ thuộc 4G (`plan_final_v2.md` mục 4.2d; nhắc lại ở P1C/P1D). Cloud ASR **chỉ** được dùng ở Post-Review (P5), 1 lần/buổi, chỉ khi có Wi-Fi.
+Vì đây là **ràng buộc kiến trúc cứng**, không phải tối ưu chi phí: chiều thu phải chạy 100% on-device, không quota ẩn, không phụ thuộc 4G (`plan_final_v2.md` mục 4.2d; nhắc lại ở P1C/P1D). ~~Cloud ASR chỉ được dùng ở Post-Review (P5)~~ **Đã sửa 2026-09-23:** bước cloud ASR của Post-Review **bị loại** vì mâu thuẫn ràng buộc #4 (audio hội thoại không rời máy; app cố ý không ghi audio) — Post-Review chỉ gửi **text local** lên LLM (user chốt).
 
 **Q: Vậy nếu máy không đủ mạnh chạy PhoWhisper thì sao?**
 Chuyển sang Vosk (P1D) — vẫn offline. Nếu cả hai không đủ dùng thì **dừng và báo cáo**, không được tự ý thêm phương án cloud.
@@ -37,6 +37,32 @@ Không. Push thủ công **không** có cooldown; cooldown chỉ có ở semi-au
 
 **Q: Training Level có tự động chuyển khi người dùng tiến bộ không?**
 Không (từ P5): hoàn toàn thủ công, không thêm logic tự đề xuất/chuyển cấp.
+
+**Q: Báo cáo Post-Review có được lưu lại không (K50)?**
+Từ P5.1: **có** — mỗi báo cáo dùng được được lưu vào bảng `post_review_reports` và xem lại từ màn
+**Lịch sử phiên**. K50 thu hẹp còn "chưa verify xem-lại trên máy thật". Báo cáo bị xoá cùng phiên khi
+retention dọn (cùng transaction).
+
+**Q: Tại sao bấm nút nổi "Bật lắng nghe" lại thấy ở cả tab Lịch sử/Thống kê/Cài đặt — có phải nút trùng không?**
+Không trùng. Từ P5.3, cụm nút điều khiển phiên là **nút nổi toàn cục** (`GlobalFloatingControls`) đè
+lên mọi tab — mỗi hành động chỉ có ĐÚNG 1 điểm bấm (test khoá). Tab không còn nút phiên riêng.
+
+**Q: Tên phiên do ai đặt? Có bắt buộc đặt lúc "Kết thúc buổi" không?**
+Không bắt buộc (P5.2): tên để NULL lúc kết thúc, hiển thị bằng tên mặc định "Buổi dd/MM/yyyy HH:mm"
+sinh từ `started_at`. Đổi tên bất cứ lúc nào từ Lịch sử (nút bút chì); nhập rỗng ⇒ quay về tên mặc định,
+không báo lỗi.
+
+**Q: Đổi endpoint LLM (OpenRouter/self-host) có làm mất key Groq không?**
+Key **không đổi theo endpoint** (P2.1): app giữ đúng 1 key trong SecureStore. Quay lại Groq bằng nút
+"Khôi phục mặc định Groq"; nếu key trước đó là của OpenRouter thì phải nhập lại key Groq.
+
+**Q: Xoá dữ liệu cũ theo retention có xoá luôn báo cáo Post-Review không?**
+Có (P5.1): `deleteOlderThan` xoá transcript + báo cáo trong **cùng một transaction** — báo cáo không
+sống lâu hơn transcript (tránh "báo cáo về một buổi không còn dữ liệu").
+
+**Q: Migration DB có làm mất dữ liệu transcript cũ không?**
+Không (đã chứng minh): v1→v4 và v3-có-dữ-liệu→v4 chạy trên SQLite thật — 0 dòng mất, `title` phiên cũ
+NULL (tên mặc định sinh lúc hiển thị). Nhánh migration cũ `< 2` giữ nguyên từng chữ, có test khoá.
 
 **Q: Chưa commit gì à? Có phải agent bỏ qua bước commit không?**
 Repo hiện **0 commit** và mọi thứ còn untracked. Tôi chủ động **không** commit vì cần bạn xác nhận trước (phần TTS thô thuộc vùng an toàn, và bài học từ plan yêu cầu không tự ký duyệt).

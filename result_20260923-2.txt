@@ -1,0 +1,61 @@
+# KẾT QUẢ BUỔI 2026-09-23 (CHIỀU) — Review P5.1→P5.3 + tối ưu N+1 + đồng bộ tài liệu
+
+## Việc 1 — Review P5.1→P5.3 (theo yêu cầu user)
+
+Trạng thái đầu buổi: chạy lại `flutter analyze` + full test — **5 test P5.3 đỏ** (không phải 372 xanh
+như ghi trong working.md trước đó; báo cáo cũ ghi thiếu vòng chạy cuối).
+
+### 3 nguyên nhân (đều là hụt harness test, KHÔNG phải bug sản phẩm)
+
+1. **Test P5.3 thiếu fake capture**: chỉ stub MethodChannel ⇒ `NativeCaptureClient.startNative`
+   nhận `null` ⇒ `FormatException` ⇒ `CaptureUnavailable` ⇒ phiên không bao giờ bật được trong test
+   (4 test DoD chết vì này). Sửa: thêm tham số `capture` tuỳ chọn cho `SessionCoordinator` +
+   `RootScaffold` (đối xứng `startService` đã có từ P5.3; default null = code cũ không đổi); test bơm
+   `_FakeCapture` cùng mẫu P4.
+2. **Assertion viết theo trí nhớ bản cũ**: `'chưa ghi'` không tồn tại trong `home_tab` (nhãn thật
+   `'Quyền'`, `'Nhận dạng'`, ...); đòi nút nổi `findsNothing` ở tab khác — mâu thuẫn với chính DoD 2
+   (nút nổi phải hiện ở MỌI tab). Viết lại theo nhãn thật + đúng ngữ nghĩa DoD.
+3. **Timer còn treo khi test kết thúc**: SnackBar 4s + hàng đợi snack coordinator
+   (`_drainSnackQueue` chờ 4.1s/snack) ⇒ invariant `!timersPending` fail. Thêm
+   `flushSnackTimers()` (bơm 10s đồng hồ giả).
+4. *(phụ)* Tab Cài đặt là `ListView` build lười ⇒ `scrollUntilVisible` trước khi assert.
+
+Lỗi tự mắc trong lúc sửa (tự bắt qua chạy test, đã sửa): thiếu import `MethodChannel`;
+assert `findsNothing` cho 'Kết thúc buổi' ở tab Cài đặt (phải `findsOneWidget` — nhãn của nút nổi).
+
+### Kết quả
+
+- `flutter analyze` → No issues found
+- `flutter test` → **372/372 All tests passed!**
+- Ràng buộc prompt P5.3: `git diff --name-only | grep floating_button` = **0 dòng** (file không bị đụng).
+- Shim `home_screen.dart` giữ tương thích; secret scan diff sạch.
+
+## Việc 2 — Tối ưu N+1 HistoryScreen (dự án từ review P5.1, user ra lệnh làm)
+
+- `TranscriptDao.sessionIdsWithReport()` — MỚI: `SELECT DISTINCT session_id` từ
+  `post_review_reports`, trả `Set<int>` — 1 query (doc comment giải thích vì sao).
+- `HistoryScreen._load`: thay vòng lặp `reportForSession` cho từng phiên (N+1: 100 phiên = 101 query)
+  bằng 2 query (`allSessions` + `sessionIdsWithReport`).
+- 4 fake DAO cập nhật member mới (p5_1, p5_2, transcript_store; weekly_stats dùng noSuchMethod —
+  không cần); +2 test hợp đồng (bảng có báo cáo / bảng trống).
+- **373/373 test pass · analyze sạch.**
+- Spec `transcript-store` thêm Requirement "Truy vấn Lịch sử phiên theo hợp đồng DAO (tối ưu N+1)"
+  + scenario 2-query; **openspec validate: 18/18 passed**.
+
+## Việc 3 — Đồng bộ tài liệu
+
+- `features.md`: bảng 16 tính năng hiện có với trạng thái thật (đã-chạy-thật / code-xong / chưa-làm);
+  tick đúng các mục P1F→P7 đã code.
+- `next.md`: thêm 13b–13e vào bảng phase; "Đang ở đâu" + "Việc sắp tới" viết lại theo trạng thái
+  đang tách commit + K51; mục "Đã hoàn thành" thêm buổi adb 2026-09-23.
+- `faq.md`: +6 mục (K50 đã persist, nút nổi toàn cục không phải trùng nút, tên phiên, key không đổi
+  theo endpoint, retention xoá cả báo cáo, migration không mất dữ liệu); sửa 1 mục cũ sai
+  (cloud ASR của Post-Review đã bị loại).
+- `checklist.md`: mục "Buổi 2026-09-23 (chiều)" — đã làm/chưa làm/cần hỏi lại.
+- `LESSONS_LEARNED.md`: +A60 (harness test P5.3), +A61 (timer SnackBar trong widget test).
+- `working.md`: hồ sơ buổi.
+
+## Việc 4 — Tách commit + push (user ra lệnh)
+
+4 commit theo phase (P2.1 / P5.1 / P5.2 / P5.3) + 1 commit docs, loại TESTING.md + human.md
+(local-only). Kết quả: xem `git log` + output CI (xem handoff).
