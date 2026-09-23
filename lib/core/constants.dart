@@ -87,6 +87,32 @@ abstract final class TriggerConfig {
   static const Duration emergencyHold = Duration(seconds: 2);
 }
 
+/// Cấu hình phiên hội thoại (P4 — tích hợp pipeline + half-duplex).
+///
+/// Các ngưỡng ở đây đều là **ngưỡng phục hồi**, không phải ngưỡng nghiệp vụ: chúng chỉ quyết định
+/// khi nào một module con được coi là hỏng và cần khởi động lại / tắt hẳn, để một module lỗi không
+/// kéo sập cả phiên (prompt P4 task 5).
+abstract final class SessionConfig {
+  /// Số lần `feedAudioChunk` lỗi **liên tiếp** thì coi là engine ASR đã hỏng (chứ không phải một
+  /// chunk lỗi lẻ) và tiến hành khởi động lại. 1 lần lỗi lẻ là chuyện bình thường (engine đang tự
+  /// dọn buffer), còn lỗi liên tục 3 lần thì gần như chắc chắn engine đã chết.
+  static const int maxConsecutiveAsrFeedFailures = 3;
+
+  /// Trần số lần khởi động lại ASR trong một phiên.
+  ///
+  /// Có trần là **có chủ ý**: nếu model hỏng thật (máy hết RAM, thiếu file model) thì khởi động lại
+  /// vô hạn chỉ tạo vòng lặp nạp/xả model vài trăm MB làm nóng máy và tụt pin — tệ hơn hẳn việc tắt
+  /// ASR và nói rõ cho người dùng rằng chỉ còn VAD.
+  static const int maxAsrRestarts = 2;
+
+  /// Số mẫu độ trễ `Push → native bắt đầu tổng hợp` giữ lại để tính trung bình
+  /// (DoD P4: "đo độ trễ từ lúc bấm Push đến lúc bắt đầu nghe nudge").
+  ///
+  /// Giữ 50 mẫu gần nhất thay vì cả phiên: phiên 30-45 phút có thể có hàng trăm lần bấm, còn số
+  /// trung bình thì chỉ cần cửa sổ gần đây để phản ánh trạng thái hiện tại của máy.
+  static const int latencySampleLimit = 50;
+}
+
 /// Cấu hình chế độ hiển thị nudge (P3 mục 4.8).
 abstract final class OutputConfig {
   /// Khoá lưu chế độ output trong bảng `meta` (dùng lại `ConfigStore` như P1D).

@@ -325,6 +325,20 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [ ] In **timeline state thật** từ logcat và đối chiếu timeline tổng hợp trong `test/conversation_state_test.dart`.
 - [ ] **Dependency JitPack (`android-vad:webrtc:2.0.10`) chưa resolve bằng build thật** (nợ K14).
 
+### P4 — Full Pipeline Integration (half-duplex)
+
+- [x] Tự kiểm Precondition → **KHÔNG ĐẠT** (9/10 phase trong chuỗi P1A→P3 chưa pass DoD riêng — `next.md` ghi rõ "Không có phase nào hoàn thành trọn vẹn"), đã dừng và hỏi thay vì tự quyết; user chọn **waive có ghi rủi ro** + chỉ làm **phần không phụ thuộc máy**.
+- [x] `lib/services/conversation_session_controller.dart` — orchestrator **duy nhất**: mở (service → capture → VAD → ASR) và đóng đúng thứ tự ngược lại; UI không còn tự nối module.
+- [x] **Half-duplex**: thêm `Stream<bool> SafeTtsOutput.speakingChanges` (không đổi logic an toàn P1F) + chặn chunk ASR trong lúc TTS phát, tự mở lại khi native báo `spoke`; đếm `chunksDroppedWhileSpeaking` / `asrResumeCount`.
+- [x] Race **Push khi đang phát** ⇒ bỏ qua + thông báo (không cắt câu đang đọc giữa từ); **KHÔNG cooldown** (ràng buộc xuyên phase); **Emergency không bị chặn**.
+- [x] Phục hồi từng module (prompt task 5): mic chết ⇒ dừng VAD/ASR/capture/service + thông báo; **cả 2 engine ASR fail** ⇒ phiên vẫn nghe, chỉ mất transcript; `feedAudioChunk` lỗi 3 lần liên tiếp ⇒ restart (tối đa 2/phiên) rồi hạ cấp; Trigger ném lỗi lạ ⇒ nuốt + thông báo.
+- [x] Số liệu DoD hiện trên màn hình chẩn đoán (dòng `Phiên (P4)`): pha, chunk bị chặn, số lần ASR nhận lại, số Push bị bỏ qua, số lần phục hồi, độ trễ Push trung bình, mốc bắt đầu phiên.
+- [x] Test: `test/conversation_session_controller_test.dart` — **25 test** (fake cả 7 module con); `flutter analyze` **sạch**; **236/236 test pass**.
+- [x] Tự review: sửa **rò subscription** stream transcript của ASR (mỗi lần restart để lại một subscription sống) + **reset số đếm khi bắt đầu phiên mới** (nếu tích tụ thì số liệu mất giá trị làm bằng chứng); bỏ 1 getter không có caller (bài học A8).
+- [ ] ⚠ **5/6 mục DoD chưa verify trên máy thật** (nợ **K46**): phiên hội thoại thật ≥ 30 phút không crash, xác nhận half-duplex bằng tai + `dumpsys audio`, đo pin/độ trễ thật, rút tai nghe giữa phiên thật, ngắt mạng giữa phiên.
+- [x] Tìm ra lỗi native **K45** khi tự review: phát câu mới khi câu trước còn đang đọc ⇒ câu mới **im lặng** (field `tempWav` dùng chung giữa hai "thế hệ"). Ảnh hưởng trực tiếp **Emergency Phrase**. ✅ **Đã sửa ở tầng code** (theo yêu cầu user trong commit P4): tên file = hàm của số thế hệ (`wavFor`), `playSynthesized` giữ file của chính nó, `cleanTemp(file)` chỉ null field nếu còn trỏ đúng file, `onError` dùng `cleanTempOfGeneration` (call-site thứ hai cùng họ lỗi — A54).
+- [ ] ⚠ **K45 chưa xác nhận hành vi trên máy thật**: còn chờ CI biên dịch Kotlin (máy dev không có Android SDK), và phải nghe được câu thoát hiểm khi **giữ nút nổi 2 giây đúng lúc đang đọc nudge** và log không có `không có file WAV để phát` (bước 7 giáo trình test trong `.plan/P4-result.md`).
+
 ## Cần làm (thứ tự đề xuất)
 
 1. **Chốt đường build** — GitHub Actions (chờ repo) hoặc cài Android SDK/NDK tạm vào `/tmp` ở máy này.

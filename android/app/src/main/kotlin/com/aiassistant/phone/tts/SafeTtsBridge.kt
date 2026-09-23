@@ -313,8 +313,10 @@ class SafeTtsEngine(
         stopPlaybackInternal(keepGeneration = true)
         synthesizing = true
 
-        val dir = File(appContext.cacheDir, "tts").apply { mkdirs() }
-        val wav = File(dir, "tts_$gen.wav")
+        // Đường dẫn/tên file do `wavFor` quyết định (một nguồn duy nhất): `playSynthesized` và
+        // `cleanTempOfGeneration` dựng lại file từ số thế hệ nên hai chỗ phải khớp nhau tuyệt đối.
+        File(appContext.cacheDir, "tts").mkdirs()
+        val wav = wavFor(gen)
         wav.delete()
         tempWav = wav
 
@@ -322,7 +324,7 @@ class SafeTtsEngine(
         if (code != TextToSpeech.SUCCESS) {
             Log.e(TAG, "synthesizeToFile thất bại: code=$code")
             synthesizing = false
-            cleanTemp()
+            cleanTemp(wav)
             return "error:synthesizeToFile code=$code"
         }
         Log.i(TAG, "đã yêu cầu tổng hợp (gen=$gen, device=${device.type})")
@@ -386,14 +388,14 @@ class SafeTtsEngine(
             override fun onError(utteranceId: String?) {
                 Log.e(TAG, "TTS báo lỗi khi tổng hợp (utterance=$utteranceId)")
                 synthesizing = false
-                cleanTemp()
+                cleanTempOfGeneration(utteranceId)
                 onEvent("error", mapOf("message" to "TTS tổng hợp lỗi"))
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
                 Log.e(TAG, "TTS báo lỗi khi tổng hợp (utterance=$utteranceId, code=$errorCode)")
                 synthesizing = false
-                cleanTemp()
+                cleanTempOfGeneration(utteranceId)
                 onEvent("error", mapOf("message" to "TTS tổng hợp lỗi (code=$errorCode)"))
             }
 
@@ -407,6 +409,23 @@ class SafeTtsEngine(
     private fun generationFromId(utteranceId: String?): Int =
         utteranceId?.substringAfterLast('-')?.toIntOrNull() ?: -1
 
+    /** File WAV của một thế hệ — dựng lại theo tên, KHÔNG đọc field dùng chung [tempWav]. */
+    private fun wavFor(gen: Int): File = File(File(appContext.cacheDir, "tts"), "tts_$gen.wav")
+
+    /**
+     * Xoá file tạm của **thế hệ mà lỗi thuộc về** (suy từ `utteranceId`), không phải của thế hệ
+     * đang chạy. `onError` của thế hệ cũ có thể tới SAU khi `speak()` mới đã dựng file mới ⇒ xoá
+     * theo field dùng chung sẽ làm câu mới im lặng (nợ K45, bài học A54).
+     */
+    private fun cleanTempOfGeneration(utteranceId: String?) {
+        val gen = generationFromId(utteranceId)
+        if (gen >= 0) {
+            cleanTemp(wavFor(gen))
+        } else {
+            cleanTemp()
+        }
+    }
+
     /**
      * Đọc WAV đã tổng hợp và tự phát bằng `AudioTrack` route tường minh tới tai nghe.
      *
@@ -414,14 +433,16 @@ class SafeTtsEngine(
      * thiết bị **một lần nữa** — giữa lúc tổng hợp và lúc phát, tai nghe có thể đã bị rút.
      */
     private fun playSynthesized(gen: Int) {
-        val wav = tempWav
+        // File suy từ số thế hệ, KHÔNG đọc field dùng chung `tempWav`: lúc này `speak()` mới có thể
+        // đã trỏ field sang file khác, và `finally` bên dưới sẽ xoá nhầm file của câu mới (K45/A54).
+        val wav = wavFor(gen)
         player.execute {
             try {
                 if (gen != generation.get()) {
                     Log.w(TAG, "bỏ qua phát: thế hệ đã đổi (gen=$gen)")
                     return@execute
                 }
-                if (wav == null || !wav.exists()) {
+                if (!wav.exists()) {
                     Log.e(TAG, "không có file WAV để phát")
                     return@execute
                 }
@@ -521,7 +542,7 @@ class SafeTtsEngine(
                 onEvent("error", mapOf("message" to (t.message ?: "lỗi không xác định khi phát")))
             } finally {
                 releaseTrack()
-                cleanTemp()
+                cleanTemp(wav) // file của CHÍNH lần chạy này, không phải `tempWav` hiện tại
             }
         }
     }
@@ -589,9 +610,18 @@ class SafeTtsEngine(
         }
     }
 
-    private fun cleanTemp() {
-        val file = tempWav
-        tempWav = null
+    /**
+     * Xoá file WAV tạm của **chính lần chạy đang gọi** (truyền [file] cục bộ của lần chạy đó).
+     *
+     * KHÔNG đọc lại field dùng chung [tempWav] để quyết định xoá gì: một `speak()` mới có thể đã
+     * ghi `tempWav` sang file của thế hệ MỚI trong lúc thread của lần chạy cũ còn đang thoát ra ⇒
+     * lần cũ xoá mất file của câu mới và câu mới **im lặng** (nợ K45, bài học A54). Field chỉ bị
+     * null khi nó **vẫn đang trỏ vào đúng file** mà lần chạy này sở hữu.
+     */
+    private fun cleanTemp(file: File? = tempWav) {
+        if (tempWav === file) {
+            tempWav = null
+        }
         if (file != null && file.exists() && !file.delete()) {
             Log.w(TAG, "không xoá được file tạm ${file.name}")
         }

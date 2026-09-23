@@ -98,8 +98,30 @@ Với tai nghe có dây, log của test case 1 sẽ đi qua **`becomingNoisy`** 
   người dùng kết nối loa BT, app coi đó là "riêng tư". Việc chọn thiết bị nào là ở Cài đặt Bluetooth.
 - **Rung dùng `Vibrator` của hệ thống** với 2 nhịp khác nhau (1 nhịp = không có tai nghe, 2 nhịp =
   vừa mất tai nghe). Không phải "pattern" tuỳ biến sâu hơn.
-- **Half-duplex CHƯA làm ở đây** (ràng buộc #5 của `.project/overview.md`): module không giữ tham
-  chiếu tới tầng capture, nên chưa chặn "đang thu mà phát TTS". Việc ghép thu/phát là P4.
+- **Half-duplex: P4 đã làm — nhưng ở TẦNG KHÁC, không phải ở đây.** Module này chỉ *báo tin*:
+  `Stream<bool> speakingChanges` (phát `true` ngay khi native nhận yêu cầu tổng hợp, `false` khi native
+  báo `spoke`). Việc chặn chunk ASR nằm ở `lib/services/conversation_session_controller.dart`. Lý do tách:
+  module này không được giữ tham chiếu tới tầng capture (ràng buộc #5) — và cũng không nên, vì đó là
+  quan hệ **một chiều** (TTS báo, phiên quyết định).
+- **K45 (P4 phát hiện): tài nguyên WAV "có nhiều thế hệ" từng bị giữ bằng MỘT field dùng chung ⇒ câu mới
+  IM LẶNG — ĐÃ SỬA ở tầng code (chờ verify máy).** Cơ chế cũ: `SafeTtsBridge` giữ **một field** `tempWav`
+  cho file của lần phát hiện tại, trong khi file đặt tên theo *thế hệ* (`tts_<gen>.wav`) và mọi lần phát
+  chạy trên cùng một thread (`player`) ⇒ `speak()` mới (`generation++`) làm thread của lần CŨ thoát ngay,
+  `finally { cleanTemp() }` của nó xoá `tempWav` — tức **file của câu MỚI** ⇒ vài trăm ms sau câu mới thấy
+  `tempWav == null` và **không phát gì** (`không có file WAV để phát`). TTS tổng hợp luôn lâu hơn thời gian
+  thread cũ thoát ⇒ gần như **tất định**, không phải race hiếm. Ảnh hưởng trực tiếp: **Emergency Phrase
+  (câu thoát hiểm) khi đang đọc nudge có thể không kêu**.
+  - Cách sửa (đang dùng, 4 điểm trong `SafeTtsBridge.kt`): **tên file là hàm của số thế hệ**
+    (`wavFor(gen)`) và **không chỗ nào đọc field dùng chung để biết mình sở hữu gì**: `playSynthesized`
+    lấy `val wav = wavFor(gen)`, `finally` gọi `cleanTemp(wav)`; `cleanTemp(file)` **chỉ null field nếu
+    field vẫn `===` file đó**; `onError` dùng `cleanTempOfGeneration(utteranceId)` (suy thế hệ từ
+    `utteranceId` — lỗi của thế hệ cũ có thể tới sau khi đã có file mới).
+  - ⚠️ **Khi sửa module này:** bất kỳ tài nguyên nào gắn với một "lần chạy" (file WAV, track, request id)
+    **không được** tra cứu gián tiếp qua state dùng chung; cleanup phải xoá **đúng đối tượng mình sở hữu**.
+    Dấu hiệu để nghi ngờ ngay khi review: thấy `finally { cleanTemp() }` (cleanup chung) ở chỗ có thể đã có
+    lần chạy mới ghi vào cùng field — và phải rà **hết** call-site, không chỉ chỗ đang sửa (bài học A54).
+  - ⚠️ Chưa xác nhận trên máy thật: phép thử là **giữ nút nổi 2 giây đúng lúc đang đọc nudge** ⇒ phải nghe
+    thấy câu thoát hiểm, và log **không** được có `không có file WAV để phát` (xem `.plan/P4-result.md` bước 7).
 - **Nudge chữ hiện chỉ hiện trên màn hình chẩn đoán** (SnackBar + dòng `TTS`/`Gợi ý`); kênh hiển
   thị thật (overlay/notification) chưa có — nợ **K43**.
 - **TTS chỉ chạy ở engine UI**: nếu app ở nền mà cần phát (P4/K43), phải đổi cách chọn messenger.

@@ -86,6 +86,7 @@ class SafeTtsOutput {
   /// là API thừa — đã xoá sau review, bài học A8).
   TtsOutputState _state = TtsOutputState.unknown;
   final StreamController<TtsFallbackNotice> _fallbacks = StreamController<TtsFallbackNotice>.broadcast();
+  final StreamController<bool> _speakingChanges = StreamController<bool>.broadcast();
 
   /// `true` = có tai nghe theo lần đọc gần nhất.
   bool _hasOutput = false;
@@ -108,6 +109,18 @@ class SafeTtsOutput {
   bool get needsConfirmation => _needsConfirmation;
 
   bool get isSpeaking => _speaking;
+
+  /// Phát mỗi khi bắt đầu/kết thúc việc đọc (`true` = bắt đầu, `false` = xong).
+  ///
+  /// Tồn tại cho **half-duplex của P4**: lớp điều phối cần biết chính xác lúc nào app đang phát tiếng
+  /// để tạm ngừng đưa audio vào ASR — nếu không, mic sẽ thu chính giọng TTS của app và biến nó thành
+  /// transcript (feedback loop). P1F chỉ cần `isSpeaking` để hiển thị, nhưng hiển thị không đủ: phải
+  /// có **sự kiện** mới mở/đóng được cửa ASR đúng lúc.
+  ///
+  /// Cửa sổ báo hiệu **rộng hơn** khoảng thời gian thật sự có tiếng: `true` được bật ngay khi native
+  /// *nhận* yêu cầu tổng hợp (trước khi ra tiếng) và chỉ tắt khi native báo `spoke` (sau khi phát
+  /// xong). Đây là hướng an toàn có chủ ý — chặn ASR thừa một chút còn hơn để lọt giọng TTS.
+  Stream<bool> get speakingChanges => _speakingChanges.stream;
 
   /// Thiết bị output của lần đọc gần nhất (null = chưa đọc được lần nào).
   TtsOutputInfo? get lastInfo => _lastInfo;
@@ -165,7 +178,7 @@ class SafeTtsOutput {
       );
       switch (outcome.status) {
         case TtsNativeSpeakStatus.synthesizing:
-          _speaking = true;
+          _setSpeaking(true);
           return TtsSpeakResult.started;
         case TtsNativeSpeakStatus.noHeadset:
           // Native phát hiện mất tai nghe (Dart đọc trước đó đã cũ) — native đã rung báo.
@@ -189,7 +202,7 @@ class SafeTtsOutput {
 
   /// Dừng ngay (dùng khi cần im lặng gấp: chuẩn bị thu, người dùng tắt app...).
   Future<void> stop() async {
-    _speaking = false;
+    _setSpeaking(false);
     try {
       await _client.stop();
     } catch (error) {
@@ -249,7 +262,7 @@ class SafeTtsOutput {
         if (event.wasPlaying) {
           _log.warn('tai nghe mất GIỮA CHỪNG lúc đang đọc — native đã dừng phát');
         }
-        _speaking = false;
+        _setSpeaking(false);
         _hasOutput = false;
         _needsConfirmation = true;
         _applyState();
@@ -260,11 +273,23 @@ class SafeTtsOutput {
           'Tai nghe đã ngắt — đang chuyển chế độ im lặng (đã rung báo).',
         );
       case TtsEventType.spoke:
-        _speaking = false;
+        _setSpeaking(false);
       case TtsEventType.error:
-        _speaking = false;
+        _setSpeaking(false);
         _log.error('native báo lỗi TTS: ${event.message}');
         _emit(TtsFallbackKind.error, 'Lỗi đọc TTS: ${event.message ?? "không rõ"}');
+    }
+  }
+
+  /// Đổi trạng thái "đang đọc" + phát sự kiện (chỉ khi giá trị THỰC SỰ đổi — P4 mở/đóng cửa ASR theo
+  /// sự kiện này, không được phát lặp gây mở/đóng liên tục).
+  void _setSpeaking(bool value) {
+    if (_speaking == value) {
+      return;
+    }
+    _speaking = value;
+    if (!_speakingChanges.isClosed) {
+      _speakingChanges.add(value);
     }
   }
 

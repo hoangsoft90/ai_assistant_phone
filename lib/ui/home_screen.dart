@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../audio/asr/asr_engine.dart';
 import '../audio/asr/asr_engine_selector.dart';
 import '../audio/emergency/emergency_phrase_service.dart';
 import '../audio/tts/safe_tts_output.dart';
@@ -21,10 +19,10 @@ import '../core/constants.dart';
 import '../suggestion/suggestion_models.dart';
 import '../trigger/trigger_manager.dart';
 import 'floating_button.dart';
+import '../services/conversation_session_controller.dart';
 import '../services/foreground_service.dart';
 import '../services/permission_gate.dart';
 import '../services/storage/app_database.dart';
-import '../services/storage/meta_store.dart';
 import '../services/storage/secure_store.dart';
 
 /// Màn hình chính tối thiểu của P0.5.
@@ -55,42 +53,43 @@ class _HomeScreenState extends State<HomeScreen> {
   bool? _hasApiKey;
   Map<String, bool> _permissions = <String, bool>{};
 
+  /// P4: **orchestrator DUY NHẤT** của phiên hội thoại.
+  ///
+  /// Từ P4, UI không tự nối capture → VAD → ASR → TTS nữa: việc ráp nối, ràng buộc **half-duplex**
+  /// và phục hồi khi một module con lỗi đều nằm trong [ConversationSessionController]. UI chỉ bấm nút
+  /// và hiện trạng thái — nhờ vậy chỉ còn MỘT chỗ có thể sai thứ tự, thay vì rải rác trong các hàm UI.
+  late final ConversationSessionController _session = ConversationSessionController();
+
   /// Controller capture dùng chung (lazy singleton) — chỉ chạm kênh native khi thực sự dùng.
   final AudioCaptureController _capture = AudioCapture.instance;
 
-  /// State machine hội thoại (P1B) — P2 sẽ dùng chính instance này để chặn gọi LLM.
+  /// State machine hội thoại (P1B) — P2 dùng chính instance này để chặn gọi LLM.
   final ConversationStateMachine _conversation = ConversationStateNotifier.instance;
 
   /// Đếm version của stat VAD gần nhất: ValueNotifier thay đổi giá trị mỗi buffer (10/s) để
   /// ValueListenableBuilder vẽ lại dòng "Hội thoại" mà không rebuild cả card.
   final ValueNotifier<int> _vadTick = ValueNotifier<int>(0);
   StreamSubscription<CaptureStatus>? _captureStatusSub;
-  StreamSubscription<CaptureError>? _captureErrorSub;
   StreamSubscription<VadFrameStat>? _vadStatSub;
+  StreamSubscription<String>? _sessionNoticeSub;
+  StreamSubscription<SessionPhase>? _sessionPhaseSub;
   bool _snackQueueBusy = false;
   final List<String> _snackQueue = <String>[];
 
-  /// P1D: chọn engine ASR qua cấu hình (bảng `meta` của SQLite) — đổi engine KHÔNG cần build lại,
-  /// và tầng trên (P1E/P2) chỉ nhận `AsrEngine` nên không bị ảnh hưởng khi đổi.
-  final AsrEngineSelector _asrSelector = AsrEngineSelector(const MetaConfigStore());
-
-  /// P1E: kho transcript của phiên hiện tại. Lấy đúng instance mà `main()` đã `init()` lúc bootstrap
-  /// (nơi đã xoá dữ liệu cũ hơn 7 ngày + khôi phục phiên đang dở).
-  final TranscriptStore _transcript = TranscriptStore.instance();
+  /// P4: các module con do phiên sở hữu — UI chỉ đọc/ghi QUA ĐÂY.
+  ///
+  /// Vì sao không tự dựng instance riêng: hai `EmergencyPhraseService` sẽ xoay vòng câu khác nhau
+  /// (nút nổi và nút chẩn đoán nói hai câu lệch nhau), hai `TriggerManager` sẽ có hai bộ đếm/anti-
+  /// repetition khác nhau. Một chủ sở hữu, nhiều người đọc.
+  AsrEngineKind get _asrKind => _session.asrKind;
+  TriggerManager get _trigger => _session.trigger;
+  TranscriptStore get _transcript => _session.transcript;
 
   /// P1F: cổng phát TTS an toàn — **mọi** âm thanh phát ra phải đi qua đây. Màn hình chẩn đoán
   /// chỉ gọi nó để chạy 3 test case bắt buộc của P1F (nút thật của người dùng là P3).
   final SafeTtsOutput _safeTts = SafeTtsOutput.instance();
   StreamSubscription<TtsFallbackNotice>? _ttsFallbackSub;
 
-  /// P1G: câu thoát khẩn cấp — đường tắt 100% local, không qua LLM/network. Nút tạm dưới đây chỉ
-  /// để kiểm trên máy thật; gesture thật (giữ nút nổi 2 giây) là việc của P3.
-  final EmergencyPhraseService _emergency = EmergencyPhraseService();
-
-  /// P3: **điểm vào duy nhất** cho mọi nguồn trigger (nút nổi, nút chẩn đoán, sau này là thông báo/
-  /// volume key). Trigger lo mốc Push (P1E) → Suggestion Engine → Offline Cache → giao nudge theo
-  /// chế độ output đã chọn. KHÔNG cooldown cho Push thủ công (chỉ debounce trong Policy).
-  late final TriggerManager _trigger = TriggerManager();
   SuggestionResult? _lastSuggestion;
   EffectiveNudgeOutput? _lastDelivery;
   NudgeOutputMode _outputMode = OutputModeSelector.defaultMode;
@@ -98,15 +97,6 @@ class _HomeScreenState extends State<HomeScreen> {
   /// P3 mục 4.8: tốc độ đọc TTS (0.9x-1.2x, mặc định 1.05x) — nạp từ bảng `meta` khi mở màn hình.
   double _speechRate = OutputConfig.defaultSpeechRate;
   bool _suggesting = false;
-
-  AsrEngine? _asr;
-  AsrEngineKind _asrKind = AsrEngineSelector.defaultKind;
-  StreamSubscription<Uint8List>? _asrChunkSub;
-  StreamSubscription<String>? _asrTranscriptSub;
-  Timer? _asrTicker;
-  String _lastTranscript = '(chưa có)';
-  int _asrAudioBytes = 0;
-  bool _asrBusy = false;
 
   @override
   void initState() {
@@ -120,6 +110,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Đăng ký mọi nguồn sự kiện hạ tầng (F4). Mỗi nguồn bọc riêng: một mảnh lỗi không cản mảnh
   /// khác. Subscriptions được hủy trong `dispose()`.
+  ///
+  /// P4: **lỗi mic không còn được xử lý ở đây** — nó thuộc về phiên ([ConversationSessionController]
+  /// tự dừng VAD/ASR/service rồi thông báo). UI chỉ hiển thị, không tự quyết định dừng module nào.
   void _listenInfrastructure() {
     _captureStatusSub = _capture.status.listen((CaptureStatus status) {
       if (!mounted) {
@@ -129,22 +122,22 @@ class _HomeScreenState extends State<HomeScreen> {
     }, onError: (Object error) {
       _log.warn('stream trạng thái capture lỗi: $error');
     });
-    _captureErrorSub = _capture.errors.listen((CaptureError error) {
-      _log.warn('capture lỗi giữa luồng: ${error.message}');
-      _enqueueSnack('Micro gặp lỗi: ${error.message}');
-      // Capture chết ⇒ VAD cũng hết dữ liệu. Watchdog của state machine sẽ mở khoá; tại đây
-      // dừng nghe VAD để UI thể hiện đúng "chưa nghe" thay vì treo state cũ.
-      _conversation.stop();
-      // P1D: mic chết thì ASR cũng hết dữ liệu — dừng luôn để không giữ model trong RAM vô ích.
-      unawaited(_stopAsr());
-      if (mounted) {
-        setState(() {});
-      }
-    }, onError: (Object error) {
-      _log.warn('stream lỗi capture lỗi: $error');
-    });
     _vadStatSub = _conversation.stats.listen((VadFrameStat _) {
       _vadTick.value++; // Vẽ lại dòng "Hội thoại" mỗi buffer (10/s) — giá trị đọc trực tiếp.
+    });
+    // P4: phiên thông báo khi một module con hỏng/hạ cấp (mic chết, ASR lỗi phải khởi động lại,
+    // Push bị bỏ qua vì đang phát...) ⇒ UI chỉ việc đưa lên SnackBar.
+    _sessionNoticeSub = _session.notices.listen((String message) {
+      _log.warn('phiên: $message');
+      _enqueueSnack(message);
+    });
+    // P4: pha phiên đổi (thu ↔ đang xin gợi ý ↔ đang phát) ⇒ vẽ lại nút + dòng trạng thái ngay, không
+    // phải chờ người dùng bấm "Làm mới".
+    _sessionPhaseSub = _session.phaseChanges.listen((SessionPhase phase) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _serviceRunning = _session.isActive);
     });
     // P1F: nudge chữ khi không đọc được qua tai nghe (không có tai nghe / vừa mất / vừa nối lại).
     _ttsFallbackSub = _safeTts.fallbacks.listen((TtsFallbackNotice notice) {
@@ -159,17 +152,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _captureStatusSub?.cancel();
-    _captureErrorSub?.cancel();
     _vadStatSub?.cancel();
-    _asrChunkSub?.cancel();
-    _asrTranscriptSub?.cancel();
-    _asrTicker?.cancel();
+    _sessionNoticeSub?.cancel();
+    _sessionPhaseSub?.cancel();
     _ttsFallbackSub?.cancel();
-    unawaited(_transcript.detach());
-    unawaited(_asr?.dispose());
-    // `SafeTtsOutput` là singleton dùng cả app nên ở đây chỉ DỪNG phát, KHÔNG dispose (dispose sẽ
-    // đóng stream vĩnh viễn và mọi chỗ dùng lại sau đó sẽ chết).
-    unawaited(_safeTts.stop());
+    // P4: phiên tự lo phần teardown của nó (tắt ASR + ngắt transcript store + dừng TTS). Cố ý KHÔNG
+    // dừng foreground service/capture ở đây — đúng thiết kế "nghe tiếp khi ra nền" của P0.5.
+    unawaited(_session.dispose());
     _vadTick.dispose();
     super.dispose();
   }
@@ -201,12 +190,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// P1G: kích hoạt Emergency Phrase (nút tạm — gesture thật là P3). Đường này KHÔNG qua LLM;
   /// hành vi an toàn (không tai nghe ⇒ im lặng + rung) do `SafeTtsOutput` bảo đảm sẵn.
+  ///
+  /// P4: dùng CHUNG `EmergencyPhraseService` với nút nổi (qua phiên) — hai nút phải xoay vòng trên
+  /// cùng một danh sách câu, không phải hai bộ đếm riêng nói hai câu lệch nhau.
   Future<void> _triggerEmergency() async {
-    final EmergencyTriggerResult result = await _emergency.triggerEmergency();
-    final Duration? latency = _emergency.lastTriggerToSynthLatency;
-    _log.info('emergency: $result · câu "${_emergency.lastPhrase}" · độ trễ ${latency?.inMilliseconds ?? "-"}ms');
+    final EmergencyTriggerResult result = await _session.triggerEmergency();
+    final EmergencyPhraseService emergency = _session.emergency;
+    final Duration? latency = emergency.lastTriggerToSynthLatency;
+    _log.info('emergency: $result · câu "${emergency.lastPhrase}" · độ trễ ${latency?.inMilliseconds ?? "-"}ms');
     if (latency != null) {
-      _enqueueSnack('Emergency: "${_emergency.lastPhrase}" · phát sau ${latency.inMilliseconds}ms');
+      _enqueueSnack('Emergency: "${emergency.lastPhrase}" · phát sau ${latency.inMilliseconds}ms');
     }
     if (mounted) {
       setState(() {});
@@ -233,15 +226,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Đọc engine đã chọn trong cấu hình để hiện lên UI (không tự bật ASR — đọc lúc mở màn hình).
   Future<void> _loadAsrConfig() async {
-    AsrEngineKind kind;
-    try {
-      kind = await _asrSelector.readConfigured();
-    } catch (error) {
-      _log.warn('không đọc được cấu hình engine ASR: $error');
-      kind = AsrEngineSelector.defaultKind;
-    }
+    await _session.readConfiguredEngine();
     if (mounted) {
-      setState(() => _asrKind = kind);
+      setState(() {});
     }
   }
 
@@ -257,32 +244,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     setState(() => _busy = true);
     try {
-      final bool active = _serviceRunning ||
-          _asr != null ||
-          _capture.currentStatus == CaptureStatus.starting ||
-          _capture.currentStatus == CaptureStatus.capturing;
-      if (active) {
-        // Cùng thứ tự tắt như `_toggleService()`: nhả dần từ trong ra ngoài (model ASR nặng nhất
-        // nên giải phóng trước), mic luôn được nhả trước khi tiến trình hết foreground.
-        await _stopAsr();
-        await _conversation.stop();
-        await _capture.stop();
-        await ListeningService.stop();
+      // Phiên lo việc dừng ĐÚNG THỨ TỰ (ASR → VAD → capture → service) rồi ghi cấu hình; KHÔNG tự
+      // bật lại — người dùng bấm "Bật lắng nghe" nếu muốn chạy lại bằng engine vừa chọn.
+      final bool saved = await _session.changeEngine(kind);
+      if (saved && mounted) {
+        _enqueueSnack('Đã đổi engine. Bấm Bật lắng nghe để chạy lại.');
       }
-      try {
-        await _asrSelector.writeConfigured(kind);
-      } catch (error) {
-        // Ghi hỏng ⇒ GIỮ engine cũ: `_asrKind` phải luôn là engine thật đang có hiệu lực, và nếu
-        // gán `_asrKind = kind` ở đây thì guard `kind == _asrKind` phía trên sẽ chặn luôn lần bấm
-        // lại đúng engine đó (không thể thử lưu lại).
-        _log.warn('không ghi được cấu hình engine ASR: $error');
-        _enqueueSnack('Không lưu được lựa chọn engine: $error');
-        return;
-      }
-      if (mounted) {
-        setState(() => _asrKind = kind);
-      }
-      _enqueueSnack('Đã đổi engine. Bấm Bật lắng nghe để chạy lại.');
     } catch (error, stackTrace) {
       _log.error('đổi engine ASR lỗi', error, stackTrace);
       _enqueueSnack('Lỗi: $error');
@@ -294,74 +261,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Bật ASR với engine đang cấu hình: tạo + init engine, rồi feed chunk PCM của capture vào.
-  /// Có fallback tự động sang engine còn lại nếu init lỗi (xem `AsrEngineSelector`).
-  Future<void> _startAsr() async {
-    if (_asr != null) {
-      return;
-    }
-    setState(() => _asrBusy = true);
-    try {
-      final AsrEngine engine = await _asrSelector.createAndInit();
-      _asr = engine;
-      // P1E: mọi text engine phát ra đi thẳng vào transcript store (kèm timestamp) để P2 dùng.
-      _transcript.attach(engine);
-      _asrAudioBytes = 0;
-      _lastTranscript = '(chưa có)';
-      _asrTranscriptSub = engine.transcriptStream.listen((String text) {
-        if (!mounted) {
-          return;
-        }
-        setState(() => _lastTranscript = text);
-      }, onError: (Object error) => _log.warn('stream transcript ASR lỗi: $error'));
-      _asrChunkSub = _capture.chunks.listen((Uint8List chunk) {
-        final AsrEngine? current = _asr;
-        if (current != null) {
-          unawaited(_feedAsr(current, chunk));
-        }
-      }, onError: (Object error) => _log.warn('stream chunk ASR lỗi: $error'));
-      // Nhịp 1s chỉ để dòng trạng thái nhích theo (số giây audio đã đưa vào engine) — đây là số liệu
-      // cần cho bảng so sánh 2 engine trên máy thật (DoD P1D).
-      _asrTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted && _asr != null) {
-          setState(() {});
-        }
-      });
-      _log.info('ASR đã bật: ${_asrKind.id}');
-    } catch (error, stackTrace) {
-      _log.error('không bật được ASR', error, stackTrace);
-      _enqueueSnack('Không bật được ASR: $error');
-      await _stopAsr();
-    } finally {
-      if (mounted) {
-        setState(() => _asrBusy = false);
-      }
-    }
-  }
-
-  Future<void> _feedAsr(AsrEngine engine, Uint8List chunk) async {
-    _asrAudioBytes += chunk.length;
-    try {
-      await engine.feedAudioChunk(chunk);
-    } catch (error) {
-      _log.warn('feed ASR lỗi: $error');
-    }
-  }
-
-  Future<void> _stopAsr() async {
-    _asrTicker?.cancel();
-    _asrTicker = null;
-    await _asrChunkSub?.cancel();
-    _asrChunkSub = null;
-    await _asrTranscriptSub?.cancel();
-    _asrTranscriptSub = null;
-    // P1E: ngắt khỏi store trước khi engine bị dispose (engine đổi ⇔ attach lại ở `_startAsr`).
-    await _transcript.detach();
-    final AsrEngine? engine = _asr;
-    _asr = null;
-    if (engine != null) {
-      await engine.dispose();
-      _log.info('ASR đã tắt (${_asrKind.id})');
+  /// Bật/tắt ASR thủ công (nút chẩn đoán riêng).
+  ///
+  /// Việc nạp model, nối transcript store và **chặn chunk khi TTS đang phát** đều do phiên lo — UI
+  /// chỉ gọi rồi vẽ lại. Giữ nút này (khác nút "Bật lắng nghe") để đo A/B 2 engine ASR trên máy thật
+  /// mà không phải bật cả phiên: nó chỉ nạp/tắt model.
+  Future<void> _toggleAsr() async {
+    if (_session.isAsrRunning) {
+      await _session.stopAsr();
+    } else {
+      await _session.startAsr();
     }
     if (mounted) {
       setState(() {});
@@ -373,7 +282,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _requestSuggestion({SuggestTriggerSource source = SuggestTriggerSource.diagnosticButton}) async {
     setState(() => _suggesting = true);
     try {
-      final TriggerOutcome outcome = await _trigger.onSuggestRequested(source: source);
+      // P4: đi qua PHIÊN, không gọi thẳng TriggerManager — phiên mới là chỗ giữ chốt "đang phát thì
+      // không nhận Push mới" và đo độ trễ Push → native bắt đầu tổng hợp.
+      final TriggerOutcome? outcome = await _session.push(source: source);
+      if (outcome == null) {
+        return; // bị bỏ qua vì TTS đang phát (phiên đã thông báo cho người dùng)
+      }
       _log.info('Push gợi ý: $outcome');
       if (!mounted) {
         return;
@@ -399,8 +313,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// P3 task 2: gesture giữ 2 giây trên nút nổi → Emergency Phrase (KHÔNG qua LLM/Policy).
+  ///
+  /// P4: đi qua phiên; đường khẩn cấp CỐ Ý không bị chốt chống-chồng-tiếng chặn (phải phát ngay).
   Future<void> _requestEmergency() async {
-    final EmergencyTriggerResult result = await _trigger.onEmergencyRequested();
+    final EmergencyTriggerResult result = await _session.triggerEmergency();
     _log.info('emergency qua nút nổi: $result');
     if (mounted) {
       setState(() {});
@@ -568,40 +484,25 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// Bật: service trước (để app lên foreground trước khi mở mic), rồi mới mở capture.
-  /// Tắt: capture trước, rồi service — mic luôn được nhả trước khi tiến trình hết foreground.
+  /// Bật/tắt phiên lắng nghe.
+  ///
+  /// Toàn bộ thứ tự mở (service → capture → VAD → ASR) và đóng (ngược lại, model ASR nặng nhất nên
+  /// nhả trước) nằm trong [ConversationSessionController] — UI chỉ bấm nút.
   Future<void> _toggleService() async {
     setState(() => _busy = true);
     try {
-      if (_serviceRunning) {
-        // Thứ tự tắt: ASR -> VAD -> capture -> service (nhả dần từ trong ra ngoài; model ASR nặng
-        // nhất nên giải phóng trước).
-        await _stopAsr();
-        await _conversation.stop();
-        await _capture.stop();
-        await ListeningService.stop();
+      if (_session.isActive) {
+        await _session.stop();
         _enqueueSnack('Đã tắt lắng nghe');
       } else {
-        final bool started = await ListeningService.start();
-        if (!started) {
-          _enqueueSnack('Không bật được service (thiếu quyền micro?)');
-        } else {
-          await _capture.start();
-          _conversation.start(); // P1B: nghe VAD trên cùng luồng thu
-          await _startAsr(); // P1D: ASR chạy trên cùng luồng chunk PCM
+        // Phiên tự xử lý `CaptureError` (thông báo + tắt service) — không ném ra UI.
+        final bool started = await _session.start();
+        if (started) {
           _enqueueSnack('Đang lắng nghe');
         }
       }
-    } on CaptureError catch (error) {
-      // Quyền bị từ chối / mic bận: không crash, hiện hướng dẫn, và trả service về trạng thái tắt
-      // để không còn notification "đang lắng nghe" mà thực tế không thu gì.
-      _log.warn('không mở được micro: ${error.message}');
-      await _conversation.stop();
-      await _capture.stop();
-      await ListeningService.stop();
-      _enqueueSnack(error.message);
     } catch (error, stackTrace) {
-      _log.error('đổi trạng thái service lỗi', error, stackTrace);
+      _log.error('đổi trạng thái phiên lỗi', error, stackTrace);
       _enqueueSnack('Lỗi: $error');
     } finally {
       if (mounted) {
@@ -659,13 +560,13 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
-            onPressed: (_busy || _asrBusy)
-                ? null
-                : (_asr == null ? _startAsr : _stopAsr),
-            icon: Icon(_asr == null
-                ? Icons.record_voice_over_outlined
-                : Icons.stop_circle_outlined),
-            label: Text(_asr == null ? 'Bật nhận dạng (ASR)' : 'Tắt nhận dạng (ASR)'),
+            onPressed: (_busy || _session.isBusy) ? null : _toggleAsr,
+            icon: Icon(_session.isAsrRunning
+                ? Icons.stop_circle_outlined
+                : Icons.record_voice_over_outlined),
+            label: Text(
+              _session.isAsrRunning ? 'Tắt nhận dạng (ASR)' : 'Bật nhận dạng (ASR)',
+            ),
           ),
           const SizedBox(height: 8),
           // P1E: nút Push thật là việc của P3; nút này chỉ để kiểm API `markPushMoment` trên máy thật
@@ -783,6 +684,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const Divider(height: 24),
             _infoRow('Quyền', permissionText),
+            // P4: pha phiên + số liệu half-duplex — bằng chứng cho DoD 2/3/4 hiện NGAY trên máy,
+            // không phải đọc logcat.
+            _infoRow('Phiên (P4)', _sessionText()),
             _infoRow('Thu âm', _captureStatusText()),
             // F4: vẽ lại theo _vadTick (mỗi buffer VAD) — ratio không còn đóng băng.
             ValueListenableBuilder<int>(
@@ -793,7 +697,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _infoRow('ASR', _asrText()),
             _infoRow('TTS', _ttsText()),
             _infoRow('Emergency', _emergencyText()),
-            _infoRow('Nhận dạng', _lastTranscript),
+            _infoRow('Nhận dạng', _session.lastTranscriptText),
             _infoRow('Gợi ý (P3)', _suggestionText()),
             _infoRow('Transcript', _transcriptText()),
             _infoRow('Push gần nhất', _pushText()),
@@ -820,15 +724,51 @@ class _HomeScreenState extends State<HomeScreen> {
   /// audio đã đưa vào engine, số chunk bị bỏ) để không phải đọc logcat mới biết engine có theo kịp
   /// thời gian thực hay không.
   String _asrText() {
-    final AsrEngine? engine = _asr;
-    if (engine == null) {
+    if (!_session.isAsrRunning) {
       return 'chưa chạy · engine đã chọn: ${_asrKind.label}';
     }
     // PCM16 mono 16kHz = 32000 byte/giây.
-    final String seconds = (_asrAudioBytes / 32000).toStringAsFixed(1);
-    final int dropped = engine.droppedTotal;
+    final String seconds = (_session.asrAudioBytes / 32000).toStringAsFixed(1);
+    final int dropped = _session.asrDroppedChunks;
     return '${_asrKind.label} · đang chạy · ${seconds}s audio'
         '${dropped > 0 ? " · bỏ $dropped chunk" : ""}';
+  }
+
+  /// Pha phiên + số liệu half-duplex/phục hồi (P4).
+  ///
+  /// Đây là **bề mặt bằng chứng trên máy thật**: DoD của P4 nói về những thứ không nhìn thấy được
+  /// (ASR có bị chặn đúng lúc TTS phát không, có được mở lại không, có lần nào 2 tiếng chồng nhau
+  /// không, độ trễ Push bao nhiêu) nên chúng phải hiện thành SỐ ngay trên màn hình chẩn đoán.
+  String _sessionText() {
+    if (!_session.isActive) {
+      return 'chưa bật';
+    }
+    final StringBuffer buffer = StringBuffer(_session.phase.name);
+    final int dropped = _session.chunksDroppedWhileSpeaking;
+    if (dropped > 0) {
+      buffer.write(' · chặn $dropped chunk khi đang phát');
+    }
+    if (_session.asrResumeCount > 0) {
+      buffer.write(' · ASR nhận lại ${_session.asrResumeCount} lần');
+    }
+    if (_session.overlapPreventedCount > 0) {
+      buffer.write(' · bỏ qua ${_session.overlapPreventedCount} Push (đang phát)');
+    }
+    if (_session.recoveryCount > 0) {
+      buffer.write(' · phục hồi ${_session.recoveryCount} lần');
+    }
+    final Duration? latency = _session.averagePushLatency;
+    if (latency != null) {
+      buffer.write(' · Push→tổng hợp ${latency.inMilliseconds}ms (tb)');
+    }
+    // Mốc bắt đầu phiên: bằng chứng cho DoD "chạy ≥ 30 phút liên tục" — người test chỉ cần so giờ
+    // trên máy với mốc này, không phải mò trong logcat.
+    final DateTime? started = _session.sessionStartedAt;
+    if (started != null) {
+      buffer.write(' · từ ${started.hour.toString().padLeft(2, '0')}:'
+          '${started.minute.toString().padLeft(2, '0')}');
+    }
+    return buffer.toString();
   }
 
   /// Trạng thái transcript (P1E) cho màn hình chẩn đoán: số dòng trong cửa sổ bộ nhớ + số dòng đã
@@ -879,11 +819,11 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Trạng thái Emergency Phrase (P1G) cho màn hình chẩn đoán: câu của lần trigger gần nhất +
   /// độ trễ đo được (bằng chứng DoD P1G ngay trên máy, không cần logcat).
   String _emergencyText() {
-    final String? phrase = _emergency.lastPhrase;
+    final String? phrase = _session.emergency.lastPhrase;
     if (phrase == null) {
-      return 'chưa kích hoạt · câu kế tiếp: "${_emergency.nextPhrase}"';
+      return 'chưa kích hoạt · câu kế tiếp: "${_session.emergency.nextPhrase}"';
     }
-    final Duration? latency = _emergency.lastTriggerToSynthLatency;
+    final Duration? latency = _session.emergency.lastTriggerToSynthLatency;
     return '"$phrase" · phát sau ${latency?.inMilliseconds ?? "?"}ms (chưa tính thời gian đọc)';
   }
 

@@ -8,7 +8,7 @@ Nơi chứa toàn bộ pipeline audio. Sẽ được điền dần theo thứ t�
 | P1B | VAD + state tối giản `userSpeaking` / `notUserSpeaking` |
 | P1C | `PhoWhisperAsrEngine` (whisper.cpp, model GGML q5_0) implement interface `AsrEngine` |
 | P1D | `VoskAsrEngine` + `AsrEngineSelector` (đổi engine qua config) |
-| ✅ P1F | `tts/` — `SafeTtsOutput`: cổng **bắt buộc** cho mọi phát âm thanh từ phase này trở đi (native `TextToSpeech` → `AudioTrack.setPreferredDevice`). Code xong, **3 test case máy thật chưa chạy** (`.plan/P1F-result.md`) |
+| ✅ P1F | `tts/` — `SafeTtsOutput`: cổng **bắt buộc** cho mọi phát âm thanh từ phase này trở đi (native `TextToSpeech` → `AudioTrack.setPreferredDevice`). Code xong, **3 test case máy thật chưa chạy** (`.plan/P1F-result.md`). Từ **P4** có thêm `Stream<bool> speakingChanges` — tín hiệu để tầng phiên chặn chunk vào ASR khi đang phát (half-duplex): `.project/modules/pipeline-integration.md` |
 | P1G | Emergency Phrase (local, tách khỏi luồng LLM) |
 | ✅ P3 | `output_mode_selector.dart` (3 chế độ: tai nghe / rung / chữ + tốc độ đọc 0.9–1.2x) + `nudge_delivery.dart` (nơi **giao** nudge: đọc/rung/chữ). Code xong, **chưa verify trên máy** (K42) |
 

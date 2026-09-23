@@ -1,6 +1,6 @@
 # openspec.md — Tiến độ, bug, todo (góc nhìn OpenSpec)
 
-Cập nhật: 2026-09-21 (+07, sau P1E).
+Cập nhật: 2026-09-23 (+07, sau P4).
 
 > **Nguồn sự thật về nợ/DoD là `checklist.md`** — bảng ở mục 3 đây chỉ giữ các mục cũ + mục đang mở
 > mức cao; K17–K26 đã đóng và một số dòng cũ đã được dọn.
@@ -42,6 +42,7 @@ dự kiến là P1A/P1B.
 | P1G | Emergency Phrase (local) | 🟡 **code xong** (`lib/audio/emergency/`, 8 test mới — 130/130 pass, analyze sạch); chưa build/máy thật — xem `.plan/P1G-result.md` |
 | P2 | Suggestion Engine (LLM + Policy) | 🟡 **code xong** (`lib/suggestion/`, 29 test mới — 161/161 pass, analyze sạch); **prompt khung nguyên văn** đã đối chiếu từng dòng với `.plan/prompt_P2.md`; review lần 2 tìm + sửa **3 lỗi High** (bài học A50); chưa test máy thật — nợ **K39**, **K40** |
 | P3 | Trigger Abstraction + Output Modes + Offline Nudge Cache | 🟡 **code xong** (`lib/trigger/`, `lib/ui/floating_button.dart`, `output_mode_selector.dart`, `nudge_delivery.dart`, asset cache — 50 test mới: **211/211 pass**, analyze sạch); 6 lỗi + 2 thứ thừa (Ponytail) tự tìm khi review đã xử lý; chưa test máy thật — nợ **K41/K42/K43/K44**, đóng **K38/K40** |
+| P4 | Full Pipeline Integration (half-duplex) | 🟡 **code xong phần không phụ thuộc máy** (`lib/services/conversation_session_controller.dart` + `SafeTtsOutput.speakingChanges` — 25 test mới: **236/236 pass**, analyze sạch); Precondition **không đạt**, user waive có ghi rủi ro; phát hiện + **sửa** lỗi native **K45** (chờ xác nhận hành vi trên máy); chưa test máy thật — nợ **K46**, đóng **K35** |
 | P4 | Full Pipeline Integration (half-duplex) | ⬜ |
 | P5 | Pre-Brief + Post-Review + Coaching + Training Level | ⬜ |
 | P6 | Semi-auto Mode (tuỳ chọn) | ⬜ — cần dùng thực địa ≥2 tuần |
@@ -86,12 +87,14 @@ dự kiến là P1A/P1B.
 | **K41** | **Tốc độ đọc TTS chưa verify trên máy** — `setSpeechRate` đã nối tới native (0.9–1.2x, mặc định 1.05x, kẹp ở 2 tầng) nhưng chưa xác nhận giọng đọc thật sự đổi. Lưu ý `setSpeechRate` là **cấu hình dính**: đường Emergency (`rate=null`) giữ tốc độ của lần đọc trước đó | 🟠 vừa | `.plan/P3-result.md` |
 | **K42** | **P3: 4 mục DoD chưa verify trên máy thật** — (a) nudge **thật** từ Groq qua nút nổi; (b) giữ đúng 2s trên máy ⇒ Emergency, thả sớm ⇒ Push; (c) cả 3 chế độ (rung thật / im lặng tuyệt đối / đọc qua tai nghe) + tốc độ 0,9x–1,2x nghe khác nhau; (d) **chế độ máy bay** ⇒ nudge từ Offline Cache (dòng `CACHE OFFLINE`). Unit test đã khoá logic (kể cả mốc 2 giây) nhưng không thay được cảm nhận/rung/âm thanh thật | 🔴 cao | `.plan/P3-result.md`, `.plan/prompt_P3.md` |
 | **K43** | **Trigger ngoài app chưa có**: volume key (cần override Activity; nếu vội ⇒ mỗi lần chỉnh âm lượng sẽ gọi LLM), nút tai nghe Bluetooth (`MediaSession`/`MediaButtonReceiver` + phát từ tiến trình nền ⇒ vướng K36), notification action (Kotlin `ListeningService` + gọi ngược vào Dart khi app ở nền). Đường nối đã sẵn: `SuggestTriggerSource` + **một** hàm `TriggerManager.onSuggestRequested` | 🟠 vừa | `.plan/P3-result.md` mục "Sai khác" 2 |
+| **K45** | **LỖI NATIVE (P4 phát hiện — ĐÃ SỬA ở tầng code, chờ xác nhận trên máy): phát câu mới khi câu trước còn đang đọc ⇒ câu mới IM LẶNG.** `SafeTtsBridge` giữ **một field** `tempWav` cho file WAV của lần phát hiện tại, trong khi file đặt tên theo *thế hệ* và mọi lần phát chạy trên cùng thread ⇒ `generation++` làm vòng lặp lần CŨ thoát ngay, `finally { cleanTemp() }` của nó xoá `tempWav` = **file của câu MỚI** ⇒ lần phát mới thấy `tempWav == null` và không phát gì (`không có file WAV để phát`). TTS tổng hợp lâu hơn thời gian thread cũ thoát ⇒ gần như **tất định**. **Ảnh hưởng: Emergency Phrase (câu thoát hiểm) khi đang đọc nudge có thể không kêu.** `ConversationSessionController.push()` bỏ qua Push khi đang phát nên đường Push không vào ca này, nhưng Emergency **cố ý không bị chặn**. **Đã sửa trong commit P4** (user chốt "sửa luôn"): `wavFor(gen)` là nguồn duy nhất cho đường dẫn/tên file, `playSynthesized` giữ file của CHÍNH lần chạy rồi `cleanTemp(wav)`, `cleanTemp(file)` chỉ null field nếu `tempWav === file`, `onError` suy thế hệ từ `utteranceId` (`cleanTempOfGeneration` — **call-site thứ hai cùng họ lỗi**, xem A54). Còn lại: **nghe được câu thoát hiểm khi đang đọc nudge** trên máy thật (bước 7 `.plan/P4-result.md`) | 🟠 vừa | `.project/modules/tts-safety.md` mục 7, `.plan/P4-result.md` |
+| **K46** | **P4: 5/6 mục DoD chưa verify trên máy thật** — (a) phiên hội thoại thật ≥ 30 phút không crash; (b) half-duplex đúng (ASR không bắt nhầm giọng TTS — cần tai + `dumpsys audio` + số trên dòng `Phiên (P4)`); (c) đo pin/giờ + độ trễ Push trung bình; (d) rút tai nghe giữa phiên thật; (e) tắt mạng giữa phiên ⇒ phần còn lại vẫn chạy. Unit test đã khoá logic nhưng không thay được phiên thật | 🔴 cao | `.plan/P4-result.md` mục DoD |
 | **K44** | **Offline Nudge Cache không theo chủ đề hội thoại** — câu trong cache là câu chung (khi LLM không trả về thì ta không biết nội dung để chọn theo chủ đề). Nếu dùng thật thấy vô dụng thì chốt lại ở P5 | 🟡 thấp | `.plan/P3-result.md` |
 
 ## 4. Todo ngay tiếp theo (thứ tự)
 
 1. **Tải APK debug mới nhất từ CI → cài máy thật → chạy 1 vòng protocol đo** cho **tất cả** phase
-   đang nợ: **P3 (K42/K41)**, **P2 (K39)**, **P1F (3 test case TTS, K34)**, P0 Task 2/3 (K2), P1E (`am kill` + đổi ngày 8 ngày), P1D (2 engine, 45′), P1B (ngưỡng VAD bằng giọng thật),
+   đang nợ: **P4 (K46 — cần phiên thật ≥30′, nên đây là lượt test quan trọng nhất)**, **P3 (K42/K41)**, **P2 (K39)**, **P1F (3 test case TTS, K34)**, P0 Task 2/3 (K2), P1E (`am kill` + đổi ngày 8 ngày), P1D (2 engine, 45′), P1B (ngưỡng VAD bằng giọng thật),
    P1A/P0.5 (quyền, FGS, DB, `becomingNoisy`), P0 (A2DP/HFP). Đây là điểm chặn chất lượng của 6 phase.
    Giáo trình gộp một lượt ~45′ nằm ở `next.md` mục "Buổi test máy thật sắp tới".
    Làm **K37** (đòi xác nhận mỗi lần mở app) trước buổi test cho đỡ tốn thao tác tay.

@@ -14,14 +14,17 @@ TriggerManager.onSuggestRequested({SuggestTriggerSource source = floatingButton}
 
 ```
 nguồn (nút nổi / nút chẩn đoán / …)
-   → TriggerManager.onSuggestRequested(source)
+   → ConversationSessionController.push(source)      [P4: chốt chống chồng tiếng + đo độ trễ]
+     → TriggerManager.onSuggestRequested(source)
        ├─ ghi mốc Push (P1E)            — lỗi ở đây KHÔNG chặn Push
        ├─ SuggestionService.pushFromState()   — Policy (chặn cứng userSpeaking + debounce) → LLM → Offline Cache
        └─ OutputModeSelector + NudgeDelivery → SafeTtsOutput (đọc) / rung / chỉ chữ
 ```
 
-Grep để tự kiểm: `grep -rn "onSuggestRequested" lib/` — chỉ được thấy 1 nơi gọi (hiện là
-`lib/ui/home_screen.dart`).
+Grep để tự kiểm: `grep -rn "onSuggestRequested" lib/` — chỉ được thấy **1 nơi gọi**. Từ **P4**, nơi
+gọi đó là `lib/services/conversation_session_controller.dart` (tầng orchestrator), **không** phải UI:
+UI gọi `ConversationSessionController.push()` để tầng phiên còn giữ được chốt "đang phát thì không
+nhận Push mới" + đo độ trễ (xem `.project/modules/pipeline-integration.md`).
 
 ## Nguồn đã có (P3)
 
@@ -38,9 +41,14 @@ Grep để tự kiểm: `grep -rn "onSuggestRequested" lib/` — chỉ được 
 
 1. **Push thủ công KHÔNG cooldown** (quyết định P2). Chỉ debounce 1s chống double-tap trong Policy.
 2. **Không bao giờ ném ra UI** — mọi lỗi quy về `NO_SUGGESTION` (hoặc nudge từ Offline Cache).
-3. **Đường Emergency không đi qua tầng này**: gesture giữ 2 giây gọi thẳng
-   `EmergencyPhraseService.triggerEmergency()` (không LLM, không Policy, không debounce).
+3. **Đường Emergency không đi qua tầng này**: gesture giữ 2 giây gọi
+   `ConversationSessionController.triggerEmergency()` → `TriggerManager.onEmergencyRequested()` →
+   `EmergencyPhraseService.triggerEmergency()` (không LLM, không Policy, không debounce). Từ P4, chốt
+   chống-chồng-tiếng của tầng phiên **cố ý không** áp cho đường này — câu thoát hiểm phải phát ngay.
 4. **Không log nội dung nudge** — dùng `SuggestionResult.logLabel` (loại/nguồn) cho log; nội dung chỉ
    hiện trên màn hình chẩn đoán.
+5. **Chốt chống-chồng-tiếng (từ P4) KHÔNG phải cooldown**: tầng phiên bỏ qua Push đúng trong lúc TTS
+   đang phát (cho qua sẽ cắt câu đang đọc giữa từ); khi rảnh thì bấm bao nhiêu lần cũng đi qua. Cooldown
+   12-15s vẫn chỉ thuộc semi-auto mode P6.
 
 Chi tiết đầy đủ: `.plan/P3-result.md` · `.project/modules/trigger-and-output.md`.

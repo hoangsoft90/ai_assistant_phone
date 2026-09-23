@@ -1,6 +1,6 @@
 # modules/ — Danh sách module
 
-Cập nhật: 2026-09-21 (+07).
+Cập nhật: 2026-09-23 (+07).
 
 > ⚠ **Đọc trước:** repo này **chưa có module sản phẩm nào**. Không có Auth, Profile, Cart, Payment,
 > Product, Order — đây là **app công cụ cá nhân một người dùng**, không phải app thương mại.
@@ -25,6 +25,7 @@ thái → việc còn thiếu → cảnh báo khi sửa.**
 | [Transcript store](transcript-store.md) | `lib/transcript/*` + `lib/services/storage/transcript_dao.dart` | 🟡 **code xong (P1E)**; SQLite v2 + migration (kiểm offline); chưa chạy trên máy (K27/K28) |
 | [Suggestion engine](suggestion-engine.md) | `lib/suggestion/*` | 🟡 **code xong (P2)** + Offline Nudge Cache (P3); chưa test máy thật (K39 — cần Groq API key, có nút nhập key từ P3) |
 | [Trigger + output mode](trigger-and-output.md) | `lib/trigger/*`, `lib/ui/floating_button.dart`, `lib/audio/{output_mode_selector,nudge_delivery}.dart` | 🟡 **code xong (P3)**; 49 test mới; chưa test máy thật (K41/K42), volume key/nút BT/thông báo còn nợ (K43) |
+| [Pipeline integration (P4)](pipeline-integration.md) | `lib/services/conversation_session_controller.dart` | 🟡 **code xong (P4)** — orchestrator + half-duplex, 25 test mới (236/236 pass); **chưa verify máy thật** (K46). Phát hiện lỗi native K45 |
 | Core (hằng số + logging) | `lib/core/constants.dart`, `app_logger.dart` | ✅ xong cho phạm vi hiện tại — không cần file riêng |
 
 ## 3. Module SẢN PHẨM — CHƯA có code (kế hoạch)
@@ -45,7 +46,7 @@ phase tương ứng bắt đầu (và ghi vào bảng mục 2 lúc đó).
 > `emergency-phrase` (P1G) đã có code — xem `lib/audio/emergency/`; gesture thật (giữ nút nổi 2s) đã có từ P3, còn verify trên máy (K42).
 > `suggestion-engine` (P2) đã có code — xem bảng ở mục 2 (file: `suggestion-engine.md`).
 > `trigger-modes` (P3) đã có code — xem bảng ở mục 2 (file: `trigger-and-output.md`).
-| `pipeline-halfduplex` | P4 | ghép các tầng | Ghép toàn bộ luồng, đảm bảo half-duplex |
+> `pipeline-halfduplex` (P4) đã có code — xem bảng ở mục 2 (file: `pipeline-integration.md`).
 | `prebrief-postreview` | P5 | `lib/ui/`, `lib/suggestion/` | Chuẩn bị trước cuộc nói + xem lại sau |
 | `semi-auto-mode` | P6 | `lib/trigger/` | Chế độ bán tự động (tuỳ chọn) |
 | `hardening-release` | P7 | toàn dự án | Chống kill service, pin, release build |
