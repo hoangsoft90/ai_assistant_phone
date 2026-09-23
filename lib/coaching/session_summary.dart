@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../core/app_logger.dart';
 import '../core/constants.dart';
+import '../services/storage/meta_store.dart';
 import '../suggestion/groq_llm_provider.dart';
 import '../suggestion/llm_provider.dart';
 import '../suggestion/suggestion_models.dart';
@@ -26,12 +27,19 @@ import '../transcript/transcript_store.dart';
 class SessionSummaryService {
   SessionSummaryService({
     TextLlmProvider? provider,
+    /// P2.1: khi không inject provider, tóm tắt dùng CÙNG endpoint/model người dùng cấu hình
+    /// (resolve mỗi lần gọi — cùng [LlmProviderConfigResolver] + key SecureStore) thay vì luôn
+    /// mặc định Groq. `null` = mặc định Groq, y hệt hành vi trước khi có P2.1.
+    ConfigStore? llmConfigStore,
     TranscriptStore? transcript,
     DateTime Function()? now,
     this.everyNudges = CoachingConfig.summaryEveryNudges,
     this.interval = CoachingConfig.summaryInterval,
     this.maxTokens = 200,
-  })  : _provider = provider ?? GroqLlmProvider(),
+  })  : _provider = provider ??
+            (llmConfigStore == null
+                ? GroqLlmProvider()
+                : GroqLlmProvider(configStore: llmConfigStore)),
         _transcript = transcript ?? TranscriptStore.instance(),
         _now = now ?? DateTime.now;
 
