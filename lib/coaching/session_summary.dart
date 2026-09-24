@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:http/http.dart' as http;
+
 import '../core/app_logger.dart';
 import '../core/constants.dart';
 import '../services/storage/meta_store.dart';
@@ -36,10 +38,19 @@ class SessionSummaryService {
     this.everyNudges = CoachingConfig.summaryEveryNudges,
     this.interval = CoachingConfig.summaryInterval,
     this.maxTokens = 200,
+    http.Client? llmClient,
+    Future<String?> Function()? llmApiKeyReader,
   })  : _provider = provider ??
-            (llmConfigStore == null
-                ? GroqLlmProvider()
-                : GroqLlmProvider(configStore: llmConfigStore)),
+            GroqLlmProvider(
+              client: llmClient,
+              apiKeyReader: llmApiKeyReader,
+              // `null` ⇒ y hệt `GroqLlmProvider()` (mặc định Groq) — P2.1 vẫn nguyên.
+              configStore: llmConfigStore,
+              // **P5.4**: tóm tắt phiên KHÔNG chặn cuộc trò chuyện (caller gọi bằng `unawaited`, người
+              // dùng đang nói) ⇒ dùng mốc 5 phút, KHÔNG phải 4s của Push. Trước phase này nó thừa
+              // hưởng mặc định 4s nên bản tóm tắt hay bị bỏ khi LLM phản hồi chậm.
+              timeout: SuggestionConfig.postReviewTimeout,
+            ),
         _transcript = transcript ?? TranscriptStore.instance(),
         _now = now ?? DateTime.now;
 

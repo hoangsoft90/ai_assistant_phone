@@ -37,9 +37,12 @@ abstract final class StorageConfig {
   /// `transcript_segments`, `transcript_pushes`). v3 (P5.1): thêm bảng `post_review_reports`
   /// (lưu báo cáo Post-Review để xem lại trong Lịch sử). v4 (P5.2): thêm cột `title` vào
   /// `transcript_sessions` (tên phiên do người dùng đặt, `NULL` = dùng tên mặc định theo timestamp).
+  /// v5 (issue1_fix): thêm cột `ended_at_ms` (phân biệt phiên kết thúc CHỦ ĐỘNG với phiên chỉ hết
+  /// hoạt động). v6 (P5.4): thêm cột `last_analysis_attempt_ms` (mốc lần THỬ phân tích lại gần nhất
+  /// — throttle cho việc phân tích bù các phiên còn thiếu báo cáo).
   /// Mỗi lần lên version PHẢI có nhánh migration tương ứng trong `AppDatabase._onUpgrade` — người
-  /// dùng đã có DB v1/v2/v3 trên máy.
-  static const int databaseVersion = 5;
+  /// dùng đã có DB v1..v5 trên máy.
+  static const int databaseVersion = 6;
 
   /// Transcript (P1E): cửa sổ giữ trong **bộ nhớ hoạt động**. Dài hơn thì đọc thẳng từ SQLite;
   /// ngắn hơn thì tốn RAM vô ích khi phiên chạy hàng giờ.
@@ -77,9 +80,33 @@ abstract final class SuggestionConfig {
   /// Anti-repetition: không gợi ý lại chủ đề/type đã dùng trong khoảng này (plan mục 4.7).
   static const Duration antiRepetitionWindow = Duration(minutes: 2);
 
-  /// Timeout gọi API LLM. Quá hạn ⇒ trả `NO_SUGGESTION` (không treo app). Offline Nudge Cache
-  /// thật làm ở P3; ở đây chỉ cần fail gracefully.
+  /// Timeout gọi API LLM cho **Push gợi ý realtime** (P2). Quá hạn ⇒ `NO_SUGGESTION`.
+  ///
+  /// **GIỮ NGUYÊN 4 giây** (P5.4 — đã cân nhắc và chốt lại): đây là ràng buộc UX cứng, người dùng
+  /// đang đứng nói chuyện thật và chờ ngay tại chỗ để nghe gợi ý — để chờ lâu nghĩa là người đối
+  /// diện đứng nhìn họ cầm điện thoại im lặng. Hết 4s thì Offline Nudge Cache (P3) cứu ngay; đây là
+  /// **thiết kế cố ý**, không phải thiếu sót. Các cuộc gọi KHÔNG chặn cuộc trò chuyện (Post-Review,
+  /// Session Summary) dùng [postReviewTimeout] riêng — đừng gộp hai thứ này làm một.
   static const Duration llmTimeout = Duration(seconds: 4);
+
+  /// Timeout cho các cuộc gọi LLM **không chặn cuộc trò chuyện**: Post-Review + Session Summary
+  /// (P5.4).
+  ///
+  /// 5 phút vì hai cuộc gọi này chạy khi phiên đã dừng (màn hình đã hiện "đang tạo nhận xét…") —
+  /// chờ lâu không hại trải nghiệm, còn bị cắt ngang ở 4s thì mất cả bản nhận xét của buổi đã bỏ
+  /// ra, chỉ vì LLM phản hồi chậm. `TestLlmService` có mốc riêng (30s — chẩn đoán vẫn phải nhanh).
+  static const Duration postReviewTimeout = Duration(minutes: 5);
+
+  /// Timeout **thiết lập kết nối TCP** cho client HTTP đi gọi LLM (P5.4).
+  ///
+  /// Lớp phòng thủ thứ 2, KHÔNG thay thế [llmTimeout]/[postReviewTimeout]: `.timeout()` của
+  /// `Future` chỉ ngừng CHỜ, không chắc huỷ được kết nối TCP bên dưới, nên mạng xấu (DNS treo,
+  /// handshake không phản hồi) có thể treo lâu hơn con số timeout đã khai báo.
+  ///
+  /// 10 giây vì đây là thời gian **nối**, không phải thời gian chờ phản hồi: không nối được sau 10s
+  /// thì chờ thêm cũng vô ích. Thời gian chờ LLM trả lời (sau khi đã nối) vẫn do hai hằng số trên
+  /// quyết định.
+  static const Duration socketConnectTimeout = Duration(seconds: 10);
 
   /// Retry đúng 1 lần khi LLM trả JSON lỗi, rồi coi như `NO_SUGGESTION` (prompt P2 mục 5).
   static const int llmMaxParseRetries = 1;
@@ -175,6 +202,21 @@ abstract final class CoachingConfig {
   /// Trần số ký tự của bản tóm tắt phiên đưa vào prompt khung (`{summary}`) — tóm tắt dài sẽ ăn hết
   /// chỗ của transcript 30s trong cửa sổ context của model nhỏ.
   static const int summaryCharLimit = 400;
+
+  /// Nhịp **throttle** cho việc phân tích bù (P5.4): phiên đã gọi LLM mà vẫn không ra báo cáo dùng
+  /// được thì phải chờ ít nhất bằng này mới thử lại.
+  ///
+  /// Không có throttle thì mỗi lần mở app (hoặc mỗi lần bấm nút phân tích lại) sẽ đập lại đúng phiên
+  /// đang lỗi — ví dụ phiên mà LLM trả định dạng lạ: lỗi do nội dung, thử lại 100 lần vẫn lỗi, nhưng
+  /// vẫn tốn 100 request. 6 giờ là mốc đủ thưa để vô hại, đủ dày để "hôm sau mở app là có báo cáo".
+  static const Duration analysisRetryInterval = Duration(hours: 6);
+
+  /// Số phiên tối đa phân tích bù trong **một lượt** catch-up (P5.4).
+  ///
+  /// Có trần là có chủ ý: catch-up chạy trong tiến trình app đang mở bằng HTTP tuần tự, mỗi phiên có
+  /// thể mất tới [SuggestionConfig.postReviewTimeout] — nhận hết mọi phiên tồn đọng trong một lượt
+  /// sẽ giữ app bận/ấm máy rất lâu. Lượt sau (mở app lần tới, hoặc bấm nút) sẽ làm tiếp phần còn lại.
+  static const int analysisCatchUpLimit = 5;
 
   /// Ngưỡng "thật sự kẹt" cho Training Level 3 (Minimal, mục 4.9: *"chỉ khi thật sự kẹt"*).
   ///

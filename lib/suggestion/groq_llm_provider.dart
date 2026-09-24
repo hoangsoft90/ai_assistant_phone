@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../core/constants.dart';
 import '../services/storage/secure_store.dart';
+import 'llm_http_client.dart';
 import 'llm_provider.dart';
 import 'llm_provider_config.dart';
 import 'suggestion_models.dart';
@@ -25,6 +26,11 @@ import '../services/storage/meta_store.dart';
 ///   cho lần gọi kế tiếp, không cần khởi động lại app. Không truyền (mặc định của mọi nơi chưa nâng
 ///   cấp, và của toàn bộ test cũ) ⇒ dùng giá trị Groq mặc định Y HỆT trước khi có P2.1. Endpoint/
 ///   model KHÔNG nhạy cảm nên nằm ở `meta`, KHÔNG SecureStore (ràng buộc #8 — key vẫn ở đó).
+/// - **P5.4:** timeout mặc định vẫn là [SuggestionConfig.llmTimeout] (4s — Push gợi ý realtime).
+///   Caller nào KHÔNG chặn cuộc trò chuyện (Post-Review, Session Summary) phải truyền
+///   `timeout: SuggestionConfig.postReviewTimeout` — xem `post_review_service.dart`.
+/// - **P5.4:** client mặc định được bọc `connectionTimeout` tường minh ở tầng socket
+///   (`defaultLlmHttpClient()`), để mạng xấu không treo lâu hơn con số timeout đã khai báo.
 class GroqLlmProvider implements LlmProvider, TextLlmProvider {
   GroqLlmProvider({
     http.Client? client,
@@ -33,7 +39,7 @@ class GroqLlmProvider implements LlmProvider, TextLlmProvider {
     this.model = SuggestionConfig.groqModel,
     this.timeout = SuggestionConfig.llmTimeout,
     this.configStore,
-  })  : _client = client ?? http.Client(),
+  })  : _client = client ?? defaultLlmHttpClient(),
         _apiKeyReader = apiKeyReader ?? SecureStore.readLlmApiKey,
         _endpoint = endpoint ?? Uri.parse(SuggestionConfig.groqEndpoint);
 

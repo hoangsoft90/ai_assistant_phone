@@ -7,6 +7,7 @@ import '../core/app_logger.dart';
 import '../core/constants.dart';
 import '../services/storage/meta_store.dart';
 import '../services/storage/secure_store.dart';
+import 'llm_http_client.dart';
 import 'llm_provider_config.dart';
 
 /// Phân loại kết quả Test LLM (issue1_fix mục 4).
@@ -23,7 +24,7 @@ enum LlmTestKind {
   /// Endpoint không parse được scheme http/https, hoặc host không phản hồi (DNS/socket).
   invalidEndpoint,
 
-  /// Hết thời gian chờ (mặc định 12s).
+  /// Hết thời gian chờ (mặc định 30s).
   timeout,
 
   /// Lỗi mạng khác (socket/DNS/SSL...) không thuộc [invalidEndpoint].
@@ -67,7 +68,7 @@ class LlmTestResult {
 /// Ràng buộc của prompt (mục 4) — mọi thứ dưới đây đều được thiết kế để đáp ứng:
 /// - Dùng **đúng** config hiện tại: resolve qua cùng `LlmProviderConfigResolver` + `SecureStore`
 ///   với Post-Review/Suggestion (mục 5 — một abstraction duy nhất). KHÔNG cache.
-/// - Request thật (prompt 1 dòng, `max_tokens` nhỏ, timeout 12s) — không chỉ check field rỗng.
+/// - Request thật (prompt 1 dòng, `max_tokens` nhỏ, timeout 30s) — không chỉ check field rỗng.
 /// - Phân loại: auth (401/403) / not-found (404) / endpoint sai / timeout / network — không crash,
 ///   không stack trace trên UI (UI chỉ nhận [LlmTestResult]).
 /// - **Không** tạo session / transcript / report / đổi phiên hiện tại: lớp này chỉ chạm
@@ -81,8 +82,10 @@ class TestLlmService {
     http.Client? client,
     Future<String?> Function()? apiKeyReader,
     ConfigStore? configStore,
-    this.timeout = const Duration(seconds: 12),
-  })  : _client = client ?? http.Client(),
+    // P5.4: 30s (trước là 12s). Vẫn đủ nhanh cho chẩn đoán tức thì, nhưng không còn quá ngắn trên
+    // mạng chậm / endpoint tự host có độ trễ cao — Test LLM báo "timeout" sai nguyên nhân khi đó.
+    this.timeout = const Duration(seconds: 30),
+  })  : _client = client ?? defaultLlmHttpClient(),
         _apiKeyReader = apiKeyReader ?? SecureStore.readLlmApiKey,
         _configStore = configStore ?? const MetaConfigStore();
 
