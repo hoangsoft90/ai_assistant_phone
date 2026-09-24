@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../audio/capture/capture_engine.dart';
+import '../suggestion/test_llm_service.dart';
 import 'global_floating_controls.dart';
 import 'history_screen.dart';
 import 'home_tab.dart';
@@ -13,12 +14,25 @@ import 'stats_screen.dart';
 /// Kiến trúc (đúng sơ đồ prompt P5.3):
 /// ```
 /// RootScaffold
-/// ├── Scaffold
-/// │   ├── body: Stack
-/// │   │   ├── IndexedStack(index: _tabIndex, children: [HomeTab, HistoryScreen, StatsScreen, SettingsTab])
-/// │   │   └── Positioned(bottom: ..., child: GlobalFloatingControls)  // ĐÈ LÊN mọi tab
-/// │   └── bottomNavigationBar: BottomNavigationBar(4 tab)
+/// ├── ScaffoldMessenger(key: _messengerKey)      // PHẢI là TỔ TIÊN của Scaffold
+/// │   └── Scaffold
+/// │       ├── body: Stack
+/// │       │   ├── IndexedStack(index: _tabIndex, children: [HomeTab, HistoryScreen, StatsScreen, SettingsTab])
+/// │       │   └── Positioned(bottom: ..., child: GlobalFloatingControls)  // ĐÈ LÊN mọi tab
+/// │       └── bottomNavigationBar: BottomNavigationBar(4 tab)
 /// ```
+///
+/// **Thứ tự `ScaffoldMessenger` → `Scaffold` là bắt buộc** (fix SnackBar không hiện):
+/// `Scaffold` chỉ đăng ký được với một `ScaffoldMessenger` ở **tổ tiên** của nó. Bản trước đặt
+/// `ScaffoldMessenger` *bên trong* `Scaffold.body` ⇒ `Scaffold` gốc đăng ký với messenger ẩn của
+/// `MaterialApp`, còn messenger của key chỉ thấy `Scaffold` của các TAB (đang offstage trong
+/// `IndexedStack`) ⇒ SnackBar được vẽ trong cây tab chứ không ở khung gốc: bấm ở tab Cài đặt /
+/// Trang chủ thì không thấy gì.
+///
+/// Fix này KHÔNG cần bỏ `Scaffold` riêng của `HistoryScreen`/`StatsScreen`: theo
+/// `ScaffoldMessengerState._isRoot`, khi nhiều `Scaffold` cùng đăng ký một messenger thì chỉ
+/// `Scaffold` GỐC (không có tổ tiên `Scaffold` nào đã đăng ký) được vẽ SnackBar — nên đúng 1
+/// SnackBar hiện ở khắp mọi tab.
 /// - `IndexedStack` thay vì Navigator/route riêng: giữ nguyên state từng tab khi chuyển qua lại
 ///   (đang xem Thống kê → Lịch sử → quay lại, không load lại từ đầu) — hành vi bottom-nav chuẩn.
 /// - Nút nổi đặt ở RootScaffold (NGOÀI IndexedStack): cách duy nhất để "bấm được ở bất kỳ đâu" —
@@ -32,6 +46,7 @@ class RootScaffold extends StatefulWidget {
     this.stopService,
     this.capture,
     this.showEthicsReminder = true,
+    this.testLlm,
   });
 
   /// Cho test bơm service giả (môi trường test không có native — service thật luôn trả `false`);
@@ -44,6 +59,11 @@ class RootScaffold extends StatefulWidget {
 
   /// Cho test tắt lời nhắc đạo đức (đã được test riêng ở `app_smoke_test.dart`).
   final bool showEthicsReminder;
+
+  /// Cho test bơm service Test LLM giả (fix SnackBar): môi trường test không gọi HTTP thật, nên
+  /// muốn khoá cả nhánh thành công lẫn thất bại của nút Test LLM thì phải tiêm được service.
+  /// App thật dùng mặc định `null` = `TestLlmService()`.
+  final TestLlmService? testLlm;
 
   @override
   State<RootScaffold> createState() => _RootScaffoldState();
@@ -59,6 +79,7 @@ class _RootScaffoldState extends State<RootScaffold> {
     startService: widget.startService,
     stopService: widget.stopService,
     capture: widget.capture,
+    testLlm: widget.testLlm,
   );
 
   int _tabIndex = 0;
@@ -90,12 +111,15 @@ class _RootScaffoldState extends State<RootScaffold> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      // Tiêu đề app giữ nguyên như mọi phiên bản trước (tên tab đã hiện ở bottom nav).
-      appBar: AppBar(title: const Text('Trợ lý giao tiếp')),
-      body: ScaffoldMessenger(
-        key: _messengerKey,
-        child: Stack(
+    // ScaffoldMessenger BÊN NGOÀI, Scaffold BÊN TRONG (thứ tự đúng của Flutter) — xem doc của class.
+    // Chỉ đảo vị trí 2 widget; mọi tham số của Scaffold/AppBar/IndexedStack/BottomNavigationBar
+    // giữ nguyên. KHÔNG đổi logic `enqueueSnack` (lỗi ở cây widget, không ở hàng đợi).
+    return ScaffoldMessenger(
+      key: _messengerKey,
+      child: Scaffold(
+        // Tiêu đề app giữ nguyên như mọi phiên bản trước (tên tab đã hiện ở bottom nav).
+        appBar: AppBar(title: const Text('Trợ lý giao tiếp')),
+        body: Stack(
           children: <Widget>[
             // IndexedStack giữ state 4 tab khi chuyển qua lại (prompt P5.3 mục 1).
             IndexedStack(
@@ -115,17 +139,17 @@ class _RootScaffoldState extends State<RootScaffold> {
             ),
           ],
         ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _tabIndex,
-        onTap: (int index) => setState(() => _tabIndex = index),
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Trang chủ'),
-          BottomNavigationBarItem(icon: Icon(Icons.history_outlined), label: 'Lịch sử'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_outlined), label: 'Thống kê'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Cài đặt'),
-        ],
+        bottomNavigationBar: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
+          currentIndex: _tabIndex,
+          onTap: (int index) => setState(() => _tabIndex = index),
+          items: const <BottomNavigationBarItem>[
+            BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Trang chủ'),
+            BottomNavigationBarItem(icon: Icon(Icons.history_outlined), label: 'Lịch sử'),
+            BottomNavigationBarItem(icon: Icon(Icons.bar_chart_outlined), label: 'Thống kê'),
+            BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Cài đặt'),
+          ],
+        ),
       ),
     );
   }

@@ -50,7 +50,12 @@ class _FakeDao implements TranscriptDao {
 
   @override
   Future<List<TranscriptSession>> finishedSessionsWithoutReport({required int limit}) async {
-    final DateTime cutoff = DateTime.now().subtract(CoachingConfig.analysisRetryInterval);
+    // A72: cutoff phải đi qua CÙNG đồng hồ với mốc ghi vào `analysisAttempts` — nếu dùng
+    // `DateTime.now()` thật trong khi test chạy trên `_MutableClock` thì kết quả phụ thuộc giờ chạy.
+    final DateTime cutoff =
+        (analysisAttempts.values.fold<DateTime?>(null, (DateTime? a, DateTime b) => b.isAfter(a ?? b) ? b : a) ??
+                DateTime.fromMillisecondsSinceEpoch(0))
+            .subtract(CoachingConfig.analysisRetryInterval);
     final List<TranscriptSession> pending = sessions
         .where((TranscriptSession s) =>
             s.isFinished &&

@@ -31,6 +31,14 @@ import 'package:ai_assistant_phone/transcript/transcript_segment.dart';
 import 'package:ai_assistant_phone/ui/history_screen.dart';
 import 'package:ai_assistant_phone/ui/session_coordinator.dart';
 
+/// Đồng hồ **CỐ ĐỊNH** dùng CHUNG cho cả DAO giả lẫn service (`now:`).
+///
+/// Trước đây `_FakeDao.finishedSessionsWithoutReport` tính cutoff throttle bằng `DateTime.now()` THẬT,
+/// còn service được bơm `now: () => DateTime(2026, 9, 23, 21, 0)` — hai đồng hồ lệch nhau nên test
+/// "throttle 6 giờ" chỉ pass khi giờ thật còn sớm hơn mốc cố định + 6h (tức trước 03:00), và đỏ sau
+/// đó. Dùng chung một mốc ⇒ test tất định, không phụ thuộc giờ chạy.
+final DateTime _fixedNow = DateTime(2026, 9, 23, 21, 0);
+
 class _FakeConfigStore implements ConfigStore {
   final Map<String, String> values = <String, String>{};
 
@@ -70,7 +78,7 @@ class _FakeDao implements TranscriptDao {
 
   @override
   Future<List<TranscriptSession>> finishedSessionsWithoutReport({required int limit}) async {
-    final DateTime cutoff = DateTime.now().subtract(CoachingConfig.analysisRetryInterval);
+    final DateTime cutoff = _fixedNow.subtract(CoachingConfig.analysisRetryInterval);
     final List<TranscriptSession> pending = sessions
         .where((TranscriptSession s) =>
             s.isFinished &&
@@ -154,7 +162,7 @@ PostReviewService _buildPostReview(_FakeDao dao, _FakeTextLlm llm) => PostReview
       transcriptDao: dao,
       preBriefs: PreBriefStore(store: _FakeConfigStore()),
       reportSink: _DaoSink(dao),
-      now: () => DateTime(2026, 9, 23, 21, 0),
+      now: () => _fixedNow,
     );
 
 PendingAnalysisService _buildCatchUp(
@@ -165,7 +173,7 @@ PendingAnalysisService _buildCatchUp(
     PendingAnalysisService(
       dao: dao,
       postReview: _buildPostReview(dao, llm),
-      now: () => DateTime(2026, 9, 23, 21, 0),
+      now: () => _fixedNow,
       hasApiKey: () async => hasKey,
     );
 
@@ -297,7 +305,7 @@ void main() {
       );
       final int justAttempted =
           dao.addSession(base.subtract(const Duration(hours: 3)), endedAt: base);
-      dao.analysisAttempts[justAttempted] = DateTime.now();
+      dao.analysisAttempts[justAttempted] = _fixedNow;
 
       final List<TranscriptSession> pending = await dao.finishedSessionsWithoutReport(limit: 5);
 
@@ -385,7 +393,7 @@ void main() {
 
       // Sau khi hết hạn throttle thì phiên đó lại được thử.
       dao.analysisAttempts[sessionId] =
-          DateTime.now().subtract(const Duration(hours: 7));
+          _fixedNow.subtract(const Duration(hours: 7));
       await service.catchUp();
       expect(llm.calls, 2);
     });

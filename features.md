@@ -1,6 +1,6 @@
 # features.md — Trợ lý AI hỗ trợ giao tiếp realtime (Android, cá nhân)
 
-Cập nhật: 2026-09-24 (sau P5.4 — timeout theo use-case + phân tích bù phiên thiếu báo cáo). Nguồn: `.plan/plan_final_v2.md` (mục 1, 4, 5) + `.plan/production_roadmap.md` + `.plan/*-result.md` + `.plan/ADB-TEST-result.md` + `.plan/issue1_fix-result.md` + `.plan/P5_4-result.md`.
+Cập nhật: 2026-09-24 (sau P5.4 và fix SnackBar messenger). Nguồn: `.plan/plan_final_v2.md` (mục 1, 4, 5) + `.plan/production_roadmap.md` + `.plan/*-result.md` + `.plan/ADB-TEST-result.md` + `.plan/issue1_fix-result.md` + `.plan/P5_4-result.md` + `.plan/fix_snackbar_messenger-result.md`.
 
 ## Định nghĩa sản phẩm (mục 1.1)
 
@@ -36,6 +36,7 @@ App Android cá nhân, **nghe cuộc trò chuyện realtime và đưa gợi ý n
 | 15 | Production hardening (R8/minify, quy tắc riêng tư, release notes) | P7 | ✅ build CI xanh | APK debug-signed; signing thật chưa làm (chốt với user) |
 | 16 | Semi-auto Mode | P6 | ❌ chưa làm | Tuỳ chọn, không bắt buộc |
 | 17 | Phân tích bù buổi còn thiếu báo cáo + timeout tách theo use-case | P5.4 | ⚠ code xong | Buổi mà Post-Review lỗi lúc "Kết thúc buổi" (mất mạng/hết quota) được phân tích lại: tự động khi mở app (nếu có API key) + nút "Phân tích lại các buổi còn thiếu" ở tab Lịch sử; throttle 6h/phiên, chạy tuần tự, dừng khi lỗi hạ tầng. Timeout: Push **giữ 4s** (chờ tại chỗ khi đang nói), Post-Review/Summary **5 phút**, Test LLM 30s |
+| 18 | SnackBar hiện ở mọi tab (fix thông báo mất hút) | fix_snackbar_messenger | ⚠ code xong | Trước fix, bấm nút ở tab Trang chủ/Cài đặt thì thông báo bị vẽ vào `Scaffold` của tab đang ẩn (offstage trong `IndexedStack`) ⇒ vô hình. Nay `ScaffoldMessenger` bao ngoài `Scaffold` gốc ⇒ mọi thông báo (Test LLM, Bật lắng nghe, Kết thúc buổi, đổi cấu hình…) hiện đúng 1 cái ở mọi tab; 4 test bấm nút trong cây đầy đủ |
 
 ## Tính năng tương lai (chưa làm)
 

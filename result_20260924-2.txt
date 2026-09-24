@@ -1,0 +1,105 @@
+# KẾT QUẢ BUỔI 2026-09-24 (2) — Fix SnackBar không hiện (ScaffoldMessenger đặt sai vị trí)
+
+> Prompt: `.plan/prompt_fix_snackbar_messenger.md` (báo cáo đầy đủ: `.plan/fix_snackbar_messenger-result.md`;
+> `.plan/` bị gitignore). Checklist test tay: `.plan/manual_test_snackbar_messenger.md`.
+> **Bằng chứng cuối:** `flutter analyze` → **No issues found!** · `flutter test` → **428/428 All tests passed!**
+> (424 test cũ + **4 test mới**).
+
+## 1. Lỗi là gì, vì sao ảnh hưởng MỌI SnackBar
+
+`lib/ui/root_scaffold.dart` đặt `ScaffoldMessenger(key: _messengerKey)` **bên trong** `Scaffold.body`,
+tức là **dưới** `Scaffold` trong cây widget — ngược thứ tự đúng của Flutter.
+
+Bằng chứng độc lập từ chính Flutter SDK trên máy (`/google/flutter/packages/flutter/lib/src/material/scaffold.dart`):
+`ScaffoldMessengerState._register/_updateScaffolds` chỉ vẽ SnackBar cho `Scaffold` thoả `_isRoot`
+(dòng 211–245), và `_isRoot` = "không có **tổ tiên** `Scaffold` nào đã đăng ký cùng messenger" (dòng 242–245).
+
+Hệ quả: `SessionCoordinator.enqueueSnack()` gọi đúng key, nhưng cái `Scaffold` lắng nghe key đó là
+`Scaffold` của `HistoryScreen`/`StatsScreen` — mà hai màn này nằm trong `IndexedStack`, **offstage** khi
+không phải tab hiện tại. Nên:
+
+| Đang xem tab | SnackBar được vẽ ở đâu | Người dùng thấy |
+|---|---|---|
+| Lịch sử / Thống kê | `Scaffold` của chính tab đó | thấy (nên lỗi trông như "chỉ Test LLM bị") |
+| **Trang chủ / Cài đặt** | `Scaffold` của tab đang offstage | **không thấy gì** |
+
+Khớp chính xác triệu chứng user báo: bấm Test LLM ở tab Cài đặt → im lặng hoàn toàn.
+
+## 2. Fix — chỉ đảo vị trí 2 widget
+
+`ScaffoldMessenger(key: _messengerKey)` ra NGOÀI, `Scaffold` vào TRONG. `git diff` xác nhận
+`appBar` / `IndexedStack` / `BottomNavigationBar` **không đổi nội dung nào** (chỉ dịch lề 1 cấp).
+**KHÔNG** đổi logic `enqueueSnack`/`_drainSnackQueue` (đúng constraint của prompt — lỗi ở cây widget).
+
+`HistoryScreen`/`StatsScreen` **giữ nguyên** `Scaffold` riêng (prompt cho phép, và không cần bỏ): sau fix
+có 3 `Scaffold` cùng đăng ký messenger, nhưng chỉ `Scaffold` **gốc** không có tổ tiên `Scaffold` nào đã
+đăng ký ⇒ chỉ nó vẽ SnackBar ⇒ **đúng 1 SnackBar**, không vẽ trùng ở bất kỳ tab nào.
+
+Bonus: 4 chỗ `ScaffoldMessenger.of(context)` trong `history_screen.dart` và nút Test LLM **trong dialog**
+cấu hình LLM (`messengerKey.currentState`) đều được sửa theo cùng một lần — trước đây các đường này cũng
+hỏng ở tab Trang chủ/Cài đặt.
+
+## 3. Test mới — và bằng chứng nó THỰC SỰ bắt lỗi
+
+`test/snackbar_visibility_test.dart`, 4 test, tất cả bấm nút trong cây `RootScaffold` **đầy đủ**:
+
+1. Test LLM **thành công** ở tab Cài đặt ⇒ `LLM hoạt động · test-model · 7ms`
+2. Test LLM **thất bại** ⇒ `Test LLM thất bại: Key không hợp lệ (HTTP 401).`
+3. **Bật lắng nghe** từ tab **Trang chủ** (tab không có `Scaffold` riêng) ⇒ `Đang lắng nghe`
+4. **Bật lắng nghe** từ tab **Lịch sử** (tab có `Scaffold` riêng) ⇒ 1 SnackBar, không trùng
+
+Bất biến khoá lỗi cũ: `find.byType(SnackBar)` = **đúng 1**, đúng nội dung, và **không** có tổ tiên
+`IndexedStack`.
+
+**Đã kiểm test biết đỏ:** tạm đảo cây về bản cũ (giữ nguyên tham số bơm) rồi chạy lại ⇒ **4/4 ĐỎ**:
+test 1–3 `Found 0 widgets with type "SnackBar"`, test 4 `Found 1 widget with type "IndexedStack" that are
+ancestors of ...`. Khôi phục fix ⇒ **4/4 XANH**. Đây là bằng chứng cơ chế, không chỉ "test xanh".
+
+## 4. Đối chiếu Definition of Done
+
+- [x] Test Test LLM trong cây `RootScaffold` đầy đủ ⇒ đúng 1 SnackBar, đúng nội dung — 4/4 pass.
+- [x] Test cho hành động gọi từ `HomeTab` — test 3 (tab Trang chủ) pass.
+- [x] Toàn bộ test cũ pass + `flutter analyze` sạch — **428/428** · **No issues found!**
+- [ ] **Test tay trên máy thật — CHƯA LÀM ĐƯỢC** (máy dev không có Android SDK; quy tắc repo cấm build
+      APK tại chỗ; không có thiết bị cắm vào). Checklist ở `.plan/manual_test_snackbar_messenger.md`.
+      ⇒ **Đây là mục duy nhất chưa đạt; chưa coi fix là "hoàn thành" theo prompt.**
+
+## 5. Hai sai khác ngoài prompt (đều có lý do + bằng chứng)
+
+1. **Thêm seam bơm `TestLlmService? testLlm`** vào `RootScaffold` + `SessionCoordinator` (tuỳ chọn,
+   mặc định `null` = như cũ; cùng pattern `pendingAnalysis`/`capture`/`startService`). Không có seam này
+   thì không thể khoá **nhánh thành công** của nút Test LLM (test không có HTTP thật) — tức không làm
+   được đúng phần prompt yêu cầu.
+2. **Sửa 1 test CŨ đang đỏ vì time-bomb, KHÔNG phải do fix này:** `test/p5_4_catchup_test.dart` nhóm
+   "DoD 5 — throttle 6 giờ". Đã chứng minh bằng `git stash` (stash đúng 2 file tôi sửa ⇒ vẫn đỏ y hệt).
+   Nguyên nhân: fake DAO tính cutoff throttle bằng `DateTime.now()` **thật**, còn service được bơm
+   `now:` **cố định** ⇒ test chỉ xanh khi giờ thật < 03:00 ngày 24/09/2026. Sửa tất định bằng 1 hằng
+   `_fixedNow` dùng chung cho cả hai (test-only, không đụng code sản phẩm).
+   *Cùng mẫu rủi ro còn ở 3 file test khác — chưa đỏ nên không sửa (ngoài phạm vi), đã ghi A72.*
+
+## 6. Code Review (task lớn: 4 file)
+
+- **OCR KHÔNG KHẢ DỤNG** (`command -v ocr` ⇒ MISSING) ⇒ fallback review mặc định, không tự cài (đúng
+  "Graceful Degradation").
+- **AgentMemory UNREACHABLE** (`localhost:3111/agentmemory/health`, đã thử lại 1 lần) ⇒ không tra được
+  `/lessons`, `/crystals`; đã ghi bài học mới vào `LESSONS_LEARNED.md` (**A72**) thay vì bỏ qua.
+- **`codebase-memory-mcp` không có trong session** ⇒ impact review bằng `grep` toàn repo: 2 call-site
+  `SessionCoordinator(`, 4 call-site `RootScaffold(` — tất cả tương thích (tham số tuỳ chọn); 6 chỗ
+  `showSnackBar` trong `lib/` đều nay về messenger gốc ⇒ không sót chỗ nào.
+- Ponytail: seam `testLlm` là cần thiết (không đầu cơ); test 4 ≠ test 3 (một ca có `Scaffold` riêng,
+  một ca không) ⇒ **không có gì để cắt**.
+- Secret scan `git diff`: sạch.
+
+## 7. File đã đổi
+
+| File | Thay đổi |
+|---|---|
+| `lib/ui/root_scaffold.dart` | Đảo `ScaffoldMessenger` ra ngoài `Scaffold`; doc class ghi rõ thứ tự bắt buộc; thêm tham số `testLlm` |
+| `lib/ui/session_coordinator.dart` | 6 dòng: thêm tham số `testLlm` + field `_testLlm` khởi tạo từ initializer list (logic hàng đợi snack **0 dòng bị đổi**) |
+| `test/snackbar_visibility_test.dart` | **MỚI** — 4 test SnackBar trong cây đầy đủ |
+| `test/p5_4_catchup_test.dart` | 1 hằng `_fixedNow` dùng chung, thay 3 chỗ `DateTime.now()` (sửa time-bomb, test-only) |
+| `.project/modules/bootstrap-shell.md` | Hàng `root_scaffold`/`session_coordinator` + test mới + **cảnh báo mới "ScaffoldMessenger phải ở NGOÀI Scaffold"**; sửa số liệu cũ v4→v6 |
+| `.plan/fix_snackbar_messenger-result.md`, `.plan/manual_test_snackbar_messenger.md` | Báo cáo + checklist test tay (gitignored) |
+| `result_20260924-2.txt`, `handoff_20260924-2.md`, `working.md`, `LESSONS_LEARNED.md` | Hồ sơ + nhật ký + bài học A72 |
+
+**CHƯA commit** — chờ lệnh user (repo tự build APK mỗi lần push `main`, nên gộp lô).

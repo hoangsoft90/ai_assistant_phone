@@ -29,12 +29,12 @@ và lịch sử màn hình chẩn đoán.
 
 | File | Vai trò |
 |---|---|
-| `lib/ui/root_scaffold.dart` | Điểm vào UI: `BottomNavigationBar` 4 tab (Trang chủ/Lịch sử/Thống kê/Cài đặt) + `IndexedStack` giữ state tab + `Stack` đè `GlobalFloatingControls` |
+| `lib/ui/root_scaffold.dart` | Điểm vào UI: **`ScaffoldMessenger(key: _messengerKey)` bao NGOÀI `Scaffold`** (fix SnackBar 2026-09-24) + `BottomNavigationBar` 4 tab (Trang chủ/Lịch sử/Thống kê/Cài đặt) + `IndexedStack` giữ state tab + `Stack` đè `GlobalFloatingControls` |
 | `lib/ui/global_floating_controls.dart` | Nút nổi toàn cục: Bật/Dừng lắng nghe (1 nút đổi trạng thái), Kết thúc buổi (chỉ bật khi phiên chạy), Làm mới, `SuggestFloatingButton` (P3) — bấm được ở **mọi** tab |
 | `lib/ui/home_tab.dart` | Card trạng thái rút gọn (4 dòng) + **15 dòng chẩn đoán gom `ExpansionTile` "Chi tiết kỹ thuật" mặc định ĐÓNG** + lối vào Pre-Brief |
 | `lib/ui/settings_tab.dart` | Gom mọi cấu hình: LLM (key/endpoint/model), output mode, tốc độ đọc, Training Level, retention, engine ASR |
 | `lib/ui/home_screen.dart` | **Shim** — re-export `RootScaffold`, giữ tên class cho tương thích tham chiếu cũ |
-| `lib/ui/session_coordinator.dart` | State + logic phiên dùng chung (tách từ `HomeScreen` cũ, P5.3): `ChangeNotifier`, SnackBar qua `messengerKey`, hàng đợi snack `_drainSnackQueue` chờ **4.1s/snack** |
+| `lib/ui/session_coordinator.dart` | State + logic phiên dùng chung (tách từ `HomeScreen` cũ, P5.3): `ChangeNotifier`, SnackBar qua `messengerKey`, hàng đợi snack `_drainSnackQueue` chờ **4.1s/snack**; bơm được `pendingAnalysis` / `testLlm` cho test |
 
 > Lịch sử: `HomeScreen` gốc (P0.5) là 1 màn nhồi mọi nút + card chẩn đoán 15 dòng; P5.3 tách thành
 > 4 tab + nút nổi toàn cục mà **không viết lại logic nghiệp vụ** (chi tiết `.plan/P5_3-result.md`).
@@ -47,7 +47,7 @@ và lịch sử màn hình chẩn đoán.
 ## 4. Local storage
 
 Chỉ **đọc** để hiện trạng thái (không ghi/không đọc dữ liệu nghiệp vụ):
-- SQLite: `AppDatabase.instance()` → schema **v4** (P5.2) — chi tiết `transcript-store.md`.
+- SQLite: `AppDatabase.instance()` → schema **v6** (P5.4) — chi tiết `transcript-store.md`.
 - Secure storage: `SecureStore.hasLlmApiKey()` → hiện "đã lưu" / "chưa có".
 
 ## 5. Test hiện có
@@ -56,6 +56,9 @@ Chỉ **đọc** để hiện trạng thái (không ghi/không đọc dữ liệ
 - `test/p5_3_navigation_test.dart` — 7 test nav: 4 tab, nút nổi ở mọi tab (`findsOneWidget`),
   không trùng nút, IndexedStack giữ state. **Bơm `_FakeCapture` + `flushSnackTimers`** (A60/A61) —
   đọc trước khi viết test UI mới.
+- `test/snackbar_visibility_test.dart` — 4 test **SnackBar hiện thật trong cây `RootScaffold` đầy đủ**
+  (Test LLM thành công/thất bại, Bật lắng nghe từ tab Trang chủ, từ tab Lịch sử). Bất biến khoá lỗi
+  cũ: SnackBar **không** có tổ tiên `IndexedStack`. Bơm `_FakeTestLlm` qua tham số `testLlm`.
 
 ## 6. Việc còn thiếu
 
@@ -70,6 +73,11 @@ Chỉ **đọc** để hiện trạng thái (không ghi/không đọc dữ liệ
   `patterns.md` mục 2).
 - **P5.3 khoá:** không sửa `floating_button.dart` (chỉ đổi chỗ mount); không để 2 nơi cùng 1 hành
   động phiên (mỗi hành động đúng 1 điểm bấm — có test khoá).
+- **`ScaffoldMessenger` phải ở NGOÀI `Scaffold`** trong `root_scaffold.dart` — `Scaffold` chỉ đăng ký
+  được với messenger ở **tổ tiên** của nó. Đặt messenger vào `Scaffold.body` (đúng như bản trước
+  2026-09-24) làm SnackBar bị vẽ trong `Scaffold` của tab đang offstage trong `IndexedStack` ⇒ **bấm
+  nút ở tab Cài đặt/Trang chủ không thấy thông báo gì**. Sửa lại thứ tự này là **tái tạo bug**; test
+  khoá ở `test/snackbar_visibility_test.dart` (bất biến "SnackBar không có tổ tiên `IndexedStack`").
 - **Không xoá dòng chẩn đoán** khi sửa `home_tab.dart` — chỉ gom vào ExpansionTile (15 dòng giữ đủ).
 - Thêm timer/delay mới vào `SessionCoordinator` ⇒ phải cập nhật `flushSnackTimers` trong test
   (A61); thêm member mới vào DAO ⇒ cập nhật mọi fake `implements` (A24).

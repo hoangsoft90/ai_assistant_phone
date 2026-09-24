@@ -51,6 +51,7 @@ class SessionCoordinator extends ChangeNotifier {
     Future<void> Function()? stopService,
     AudioCaptureEngine? capture,
     PendingAnalysisService? pendingAnalysis,
+    TestLlmService? testLlm,
   })  : session = ConversationSessionController(
           llmConfigStore: const MetaConfigStore(),
           startService: startService,
@@ -58,6 +59,7 @@ class SessionCoordinator extends ChangeNotifier {
           capture: capture,
         ),
         pendingAnalysis = pendingAnalysis ?? PendingAnalysisService(),
+        _testLlm = testLlm ?? TestLlmService(),
         _startServiceOverride = startService;
 
   static const AppLogger _log = AppLogger('HomeScreen');
@@ -185,7 +187,9 @@ class SessionCoordinator extends ChangeNotifier {
 
   /// issue1_fix mục 4: service Test LLM dùng CHUNG resolver với Post-Review/Suggestion (mục 5).
   /// Client HTTP riêng (không dùng client của provider — test không được ảnh hưởng bởi state provider).
-  final TestLlmService _testLlm = TestLlmService();
+  /// Bơm được (fix SnackBar): môi trường test không gọi HTTP thật nên cần khoá cả nhánh thành công
+  /// lẫn thất bại của nút Test LLM — cùng cách `pendingAnalysis` đã làm.
+  final TestLlmService _testLlm;
   SuggestionResult? get lastSuggestion => _lastSuggestion;
   EffectiveNudgeOutput? get lastDelivery => _lastDelivery;
 

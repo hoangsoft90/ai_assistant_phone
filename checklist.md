@@ -480,4 +480,47 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 - [ ] Còn treo từ trước: `.project/openspec.md` §4 "Todo ngay tiếp theo" liệt kê phase cần test máy
   thật nhưng chưa có K51 + P2.1/P5.1–P5.4 (nên đưa vào danh mục buổi test gộp).
 
+## Buổi 2026-09-24 (2) — fix_snackbar_messenger (SnackBar không hiện do ScaffoldMessenger đặt sai vị trí)
+
+> Prompt: `.plan/prompt_fix_snackbar_messenger.md` · Báo cáo: `.plan/fix_snackbar_messenger-result.md` ·
+> Checklist test tay: `.plan/manual_test_snackbar_messenger.md`. Fix ưu tiên cao, ảnh hưởng **mọi**
+> SnackBar trong app.
+
+### Đã làm
+
+- [x] **Precondition đạt:** đọc `root_scaffold.dart` (toàn bộ) + phần `enqueueSnack`/`_drainSnackQueue`
+  của `session_coordinator.dart` (dòng 834–858).
+- [x] **Fix đúng phạm vi prompt:** đảo 2 widget trong `root_scaffold.dart` — `ScaffoldMessenger(key:
+  _messengerKey)` ra NGOÀI, `Scaffold` vào TRONG. `git diff` xác nhận `appBar`/`IndexedStack`/
+  `BottomNavigationBar` **không đổi nội dung nào**; **KHÔNG** đổi `enqueueSnack`/`_drainSnackQueue`;
+  `HistoryScreen`/`StatsScreen` **giữ nguyên** `Scaffold` riêng (Flutter tự hiện đúng 1 SnackBar qua
+  `_isRoot` — xác minh bằng chính Flutter SDK, `material/scaffold.dart` dòng 211–245).
+- [x] **4 test mới** (`test/snackbar_visibility_test.dart`): Test LLM thành công/thất bại + Bật lắng
+  nghe từ tab **Trang chủ** (tab không có `Scaffold` riêng) + từ tab **Lịch sử**; bất biến khoá lỗi cũ:
+  SnackBar phải **không** có tổ tiên `IndexedStack`. **Đã kiểm test biết đỏ:** đảo cây về bản cũ ⇒
+  **4/4 đỏ** (`Found 0 widgets with type "SnackBar"` / `Found 1 ... IndexedStack ... ancestors`).
+- [x] **Seam test** `TestLlmService? testLlm` (tuỳ chọn, mặc định `null` = như cũ) vào `RootScaffold` +
+  `SessionCoordinator` — cần để khoá nhánh thành công của nút Test LLM (test không có HTTP thật).
+- [x] **Sửa 1 test CŨ đỏ vì time-bomb (không phải do fix):** `p5_4_catchup_test.dart` "DoD 5 — throttle
+  6 giờ" — fake DAO dùng `DateTime.now()` thật vs service bơm `now:` cố định ⇒ chỉ xanh trước 03:00
+  24/09/2026; chứng minh không phải regression bằng `git stash`; sửa tất định bằng hằng `_fixedNow`
+  (test-only). Ghi **A72**.
+- [x] **Đồng bộ docs:** `.project/openspec.md` (+hàng fix_snackbar_messenger, K51 thêm mục máy-thật),
+  `.project/modules/bootstrap-shell.md` (+cảnh báo "ScaffoldMessenger phải ở NGOÀI Scaffold"; sửa schema
+  cũ v4→v6), `working.md`, `LESSONS_LEARNED.md` (A72), `result_20260924-2.txt` + `handoff_20260924-2.md`.
+- [x] **Review:** OCR **không khả dụng** (`ocr` MISSING) + AgentMemory **UNREACHABLE** +
+  `codebase-memory-mcp` không có trong session ⇒ fallback review mặc định đầy đủ (impact bằng grep:
+  2 call-site `SessionCoordinator(`, 4 `RootScaffold(` đều tương thích; 6 chỗ `showSnackBar` trong `lib/`
+  đều về messenger gốc; secret scan sạch). Kết quả: `flutter analyze` **No issues found!** ·
+  `flutter test` **428/428 All tests passed!** (424 cũ + 4 mới).
+
+### Chưa làm / cần hỏi lại
+
+- [ ] ⚠ **DoD còn thiếu test tay trên máy thật** (gộp **K51**): bấm Test LLM ở tab Cài đặt ⇒ SnackBar
+  hiện rõ kết quả; Bật lắng nghe ở tab Trang chủ + Lịch sử ⇒ đúng 1 SnackBar. Checklist:
+  `.plan/manual_test_snackbar_messenger.md`. Cần 1 vòng CI APK (push là tự build).
+- [ ] **CHƯA commit** — chờ user xác nhận (lô này có đụng UI gốc `root_scaffold.dart`).
+- [ ] (Tuỳ chọn) time-bomb cùng họ còn ở `test/{transcript_store, issue1_session,
+  p5_1_history_retention}_test.dart` — chưa đỏ nên chưa sửa, xem A72.
+
 ## Cần làm (thứ tự đề xuất — cũ, để tham chiếu)
