@@ -22,7 +22,7 @@ Số liệu 7 ngày  →  người dùng TỰ quyết định có đổi cấp (
 |---|---|
 | `lib/coaching/pre_brief.dart` | `PreBrief` (6 trường, `toPromptValue()` một dòng cho `{pre_brief}`) + `ConversationStyle` + `PreBriefStore` (RAM = phiên hiện tại, **nháp** trong bảng `meta`) |
 | `lib/coaching/training_level.dart` | `TrainingLevel` (5 cấp) + `TrainingLevelStore` (đọc/ghi `meta`, RAM cache) |
-| `lib/coaching/session_summary.dart` | `SessionSummaryService` — tóm tắt phiên bằng LLM theo nhịp (4 nudge **hoặc** 5 phút) |
+| `lib/coaching/session_summary.dart` | `SessionSummaryService` — tóm tắt phiên bằng LLM theo nhịp (4 nudge **hoặc** 5 phút); nhận `ConfigStore? llmConfigStore` (follow-up P2.1): khi không inject provider, dựng `GroqLlmProvider(configStore)` ⇒ tóm tắt đi **đúng endpoint/model tuỳ chỉnh** (resolve mỗi lần gọi); test mock HTTP server cục bộ khoá path/model/auth-header |
 | `lib/coaching/post_review_service.dart` | `PostReviewService.run()` + `PostReviewReport` — 3 mục, không bao giờ ném |
 | `lib/coaching/weekly_stats.dart` | `WeeklyStatsService` (đọc 2 truy vấn DAO → số liệu 7 ngày + xu hướng) |
 | `lib/ui/pre_brief_screen.dart` | Màn hình nhập Pre-Brief |

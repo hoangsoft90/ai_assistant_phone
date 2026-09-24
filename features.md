@@ -1,6 +1,6 @@
 # features.md — Trợ lý AI hỗ trợ giao tiếp realtime (Android, cá nhân)
 
-Cập nhật: 2026-09-23 tối (sau P7 + P2.1/P5.1/P5.2/P5.3 + follow-up SessionSummary custom-LLM + buổi đồng bộ docs; commit `9f678d2`). Nguồn: `.plan/plan_final_v2.md` (mục 1, 4, 5) + `.plan/production_roadmap.md` + `.plan/*-result.md` + `.plan/ADB-TEST-result.md` + `.plan/issue1_fix-result.md`.
+Cập nhật: 2026-09-24 (sau P5.4 — timeout theo use-case + phân tích bù phiên thiếu báo cáo). Nguồn: `.plan/plan_final_v2.md` (mục 1, 4, 5) + `.plan/production_roadmap.md` + `.plan/*-result.md` + `.plan/ADB-TEST-result.md` + `.plan/issue1_fix-result.md` + `.plan/P5_4-result.md`.
 
 ## Định nghĩa sản phẩm (mục 1.1)
 
@@ -15,7 +15,7 @@ App Android cá nhân, **nghe cuộc trò chuyện realtime và đưa gợi ý n
 
 ## Tính năng hiện có
 
-> Trạng thái: **code + test xong** nghĩa là có test Dart xanh (373/373) nhưng **chưa verify máy thật** nếu ghi chú nói rõ — giáo trình test ở `human.md`.
+> Trạng thái: **code + test xong** nghĩa là có test Dart xanh (**424/424**) nhưng **chưa verify máy thật** nếu ghi chú nói rõ — giáo trình test ở `human.md`.
 
 | # | Tính năng | Phase | Trạng thái | Ghi chú |
 |---|---|---|---|---|
@@ -35,6 +35,7 @@ App Android cá nhân, **nghe cuộc trò chuyện realtime và đưa gợi ý n
 | 14 | Custom LLM Provider (endpoint/model tuỳ chỉnh, khôi phục Groq) | P2.1 | ⚠ code xong | Cần endpoint thật trên máy (human.md Việc 8); **follow-up đã sửa**: tóm tắt phiên giờ cũng đi endpoint tuỳ chỉnh (trước chỉ Post-Review/Suggestion/Test) |
 | 15 | Production hardening (R8/minify, quy tắc riêng tư, release notes) | P7 | ✅ build CI xanh | APK debug-signed; signing thật chưa làm (chốt với user) |
 | 16 | Semi-auto Mode | P6 | ❌ chưa làm | Tuỳ chọn, không bắt buộc |
+| 17 | Phân tích bù buổi còn thiếu báo cáo + timeout tách theo use-case | P5.4 | ⚠ code xong | Buổi mà Post-Review lỗi lúc "Kết thúc buổi" (mất mạng/hết quota) được phân tích lại: tự động khi mở app (nếu có API key) + nút "Phân tích lại các buổi còn thiếu" ở tab Lịch sử; throttle 6h/phiên, chạy tuần tự, dừng khi lỗi hạ tầng. Timeout: Push **giữ 4s** (chờ tại chỗ khi đang nói), Post-Review/Summary **5 phút**, Test LLM 30s |
 
 ## Tính năng tương lai (chưa làm)
 

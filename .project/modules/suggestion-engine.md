@@ -1,7 +1,19 @@
 # Module: Suggestion Engine (P2) — `lib/suggestion/`
 
-Cập nhật: 2026-09-22 (+07). Trạng thái: **code xong, 161/161 test pass**, chờ test trên máy thật
-(cần Groq API key lưu qua SecureStore).
+Cập nhật: 2026-09-24 (sau P5.4). Trạng thái: **code xong, 424/424 test
+pass** (toàn project), phần máy thật gộp **K51**.
+
+### File bổ sung từ P2.1/issue1_fix
+
+| File | Vai trò |
+|---|---|
+| `lib/suggestion/llm_provider_config.dart` | `LlmProviderConfigResolver` + `ResolvedLlmConfig` — endpoint/model tuỳ chỉnh (bảng `meta`), fallback an toàn về Groq, **resolve mỗi lần gọi** (không cache) |
+| `lib/suggestion/test_llm_service.dart` | `TestLlmService` — nút Test LLM: request thật tối thiểu (`"Reply with exactly: OK"`, 8 token, timeout 12s), phân loại auth/notFound/invalidEndpoint/timeout/network/server; dùng CÙNG resolver + SecureStore; **không đụng session/transcript** |
+
+> **Custom LLM phủ toàn bộ 4 service** (follow-up P2.1): `SuggestionService`, `PostReviewService`,
+> `TestLlmService`, `SessionSummaryService` — đều nhận `ConfigStore?` và truyền vào
+> `GroqLlmProvider(configStore: …)`. Thêm service gọi LLM mới = phải theo đúng pattern này
+> (khoá bằng spec `suggestion-engine` + test `session_summary_llm_config_test.dart`).
 
 ## 1. Vai trò
 
@@ -34,14 +46,16 @@ và chỉ gửi **text** transcript (audio 100% offline, ràng buộc cứng t�
 3. **Đừng để `push()` ném.** Mọi nhánh lỗi mới thêm vào phải tự bọc và quy về `NO_SUGGESTION`;
    test "transcript lỗi ⇒ KHÔNG ném" là hàng rào cho bất biến này.
 4. **Không log API key** (kể cả khi debug request) — key chỉ đọc từ `SecureStore` và đi vào header.
-5. Prompt khung yêu cầu JSON ⇒ `response_format: json_object` **phải giữ** (Groq JSON mode), và
+5. **Key plaintext trong dialog Settings là DEBUG-ONLY** (chốt user mục 13 issue1_fix) — mask lại
+   trước khi phát hành cho người khác; comment mốc trong `session_coordinator.dart`.
+6. Prompt khung yêu cầu JSON ⇒ `response_format: json_object` **phải giữ** (Groq JSON mode), và
    chữ "JSON" phải còn trong prompt (Groq từ chối JSON mode nếu prompt không nhắc JSON).
-6. **Không dùng `as` để ép kiểu dữ liệu từ LLM/HTTP** (bài học **A50**) — `as` sai kiểu ném `TypeError`,
+7. **Không dùng `as` để ép kiểu dữ liệu từ LLM/HTTP** (bài học **A50**) — `as` sai kiểu ném `TypeError`,
    mà `TypeError` **không** phải `SuggestionException` nên sẽ xuyên qua mọi `on SuggestionException`
    ⇒ `push()` ném ra UI. Đọc bằng `is` — xem `parseSuggestionOutput()` trong `suggestion_models.dart`
    và đoạn đọc `choices` trong `groq_llm_provider.dart`. Lưới an toàn thứ hai là `_generateOnce()`
    trong `suggestion_service.dart` — đừng bỏ nó khi refactor, và nếu viết provider mới thì cũng đi qua nó.
-7. **Không log nội dung nudge/transcript** — nội dung suy ra từ hội thoại là dữ liệu nhạy cảm; logcat chỉ
+8. **Không log nội dung nudge/transcript** — nội dung suy ra từ hội thoại là dữ liệu nhạy cảm; logcat chỉ
    ghi loại nudge + lý do (nội dung đã hiển thị trên màn hình chẩn đoán). Dùng
    `SuggestionResult.logLabel` cho log (P3 thêm getter này sau khi phát hiện `toString()` có nội dung bị
    lọt vào log của `TriggerManager`).

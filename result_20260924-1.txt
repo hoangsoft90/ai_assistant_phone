@@ -1,0 +1,69 @@
+# KẾT QUẢ BUỔI 2026-09-24 (1) — P5.4: timeout theo use-case + phân tích bù phiên thiếu báo cáo
+
+> Prompt: `.plan/prompt_P5_4.md` (bản đầy đủ ở `.plan/P5_4-result.md`, `.plan/` bị gitignore).
+> **Bằng chứng cuối:** `flutter analyze` → **No issues found!** · `flutter test` →
+> **424/424 All tests passed!** (399 test cũ + **25 test mới**: 9 timeout + 16 catch-up).
+
+## 1. Phần A — tách timeout theo đúng tính chất cuộc gọi
+- `SuggestionConfig.postReviewTimeout` = **5 phút** cho Post-Review + tóm tắt phiên (trước đây
+  thừa hưởng 4s của Push nên bị cắt ngang khi LLM phản hồi chậm ⇒ mất cả bản nhận xét của buổi).
+- **`SuggestionConfig.llmTimeout` giữ nguyên 4s** — ràng buộc UX cứng: Push chạy lúc đang đứng nói
+  chuyện, chờ lâu là đứng nhìn máy; hết 4s thì **Offline Nudge Cache** (P3) cứu ngay. Chỉ viết lại doc.
+- `TestLlmService` 12s → **30s** (nút chẩn đoán, không cần nhanh).
+- `lib/suggestion/llm_http_client.dart` (**mới**): `defaultLlmHttpClient()` =
+  `IOClient(HttpClient()..connectionTimeout = 10s)` — **lớp phòng thủ thứ 2** ở tầng socket, dùng chung
+  cho `GroqLlmProvider` + `TestLlmService`. Hai lớp timeout cùng tồn tại có chủ ý (nối ≠ chờ phản hồi).
+
+## 2. Phần B — phân tích bù (catch-up) các buổi còn thiếu báo cáo
+- **Schema v5 → v6:** cột `transcript_sessions.last_analysis_attempt_ms INTEGER` (nullable). Chỉ thêm
+  nhánh `oldVersion < 6`; helper dùng chung `onCreate` (máy mới). **Nhánh `< 2`..`< 5` không bị sửa một
+  chữ** (kiểm bằng `git diff` — chỉ có dòng `+`).
+- `TranscriptDao` +3 method: `finishedSessionsWithoutReport({limit})` (raw SQL `ended_at_ms IS NOT NULL`
+  + throttle `last_analysis_attempt_ms` + `NOT EXISTS` báo cáo, cũ nhất trước), `markAnalysisAttempted`,
+  `fullSessionText` (trả `SessionText{text, segmentCount, truncated}`).
+- **Một chỗ duy nhất** ghép/cắt transcript: top-level `joinSessionText(...)` + `SessionText` trong
+  `transcript_dao.dart`; `TranscriptStore.sessionTranscript()` uỷ quyền cho DAO ⇒ "phân tích ngay" và
+  "phân tích lại sau" không thể lệch hành vi (refactor này không đổi hành vi quan sát — test P1E/P5 xanh).
+- `PostReviewService`: `runForSession(int sessionId)` mới + tách `_analyze(...)` dùng chung; `_persist`
+  nhận `sessionId` tường minh; thêm `PostReviewReport.infrastructureFailure` (true cho mọi lỗi qua
+  `SuggestionException`/lỗi bất ngờ; false cho lỗi nội dung/bad-format).
+- `lib/coaching/pending_analysis_service.dart` (**mới**): `catchUp({limit = 5})` — kiểm API key TRƯỚC,
+  ghi mốc thử TRƯỚC khi gọi LLM, chạy **tuần tự**, dừng cả lượt khi lỗi hạ tầng, tiếp tục khi lỗi nội
+  dung; trả `PendingAnalysisOutcome` (`.done(analyzed)` / `.stopped({analyzed, stoppedReason})`).
+- **2 điểm kích hoạt:** (1) `SessionCoordinator.init()` → `unawaited(catchUpPendingAnalyses())` + cờ
+  `_catchUpRunning` (SnackBar chỉ khi `analyzed > 0`); (2) nút "Phân tích lại các buổi còn thiếu" trên
+  AppBar `HistoryScreen` (loading → SnackBar → reload, luôn báo kết quả).
+
+## 3. Tuân thủ ràng buộc
+- **Không** tạo Android background service/WorkManager, **không** thêm quyền nào — "chạy ngầm" ở đây =
+  bất đồng bộ trong tiến trình app đang mở.
+- **Không catch-up khi chưa có API key**; **không chặn UI** (`unawaited`); hành vi `run()` cũ giữ nguyên;
+  không sửa nhánh migration cũ.
+
+## 4. Verify
+```
+flutter analyze → No issues found!
+flutter test    → 424/424 All tests passed!
+```
+- Migration nhánh cũ (`< 2`..`< 5`) xác nhận nguyên vẹn bằng `git diff` (chỉ dòng thêm).
+- Review: OCR **không khả dụng** (không có `ocr` CLI) ⇒ fallback review mặc định (đọc diff, kiểm
+  null/validate/secret/race). **2 lỗi tự tạo & tự sửa**: null-promotion sau `try/catch` (A67) và
+  `_FakeDao` thiếu member mới do đếm `noSuchMethod` theo file thay vì theo class (A68). Secret scan sạch;
+  dead-code: mọi symbol mới đều có caller.
+
+## 5. Docs đã đồng bộ
+- `.project/openspec.md`: ngày 2026-09-24, +hàng phase P5.4, K51 thêm 3 mục máy-thật.
+- `.project/modules/storage.md`: schema v6 + mục `TranscriptDao` P5.4 + 2 cảnh báo mới.
+- `checklist.md`: sửa mục "Chưa commit" (đã lạc hậu) + mục "Buổi 2026-09-24"; `next.md` (13g);
+  `features.md` (+tính năng 17, 424/424); `faq.md` (+2 mục: tách timeout, buổi mất báo cáo) +
+  ghi chú migration v5→v6; `working.md`; `LESSONS_LEARNED.md` (**A67–A71**).
+- **Bộ đôi bàn giao gốc:** `result_20260924-1.txt` + `handoff_20260924-1.md` (file này) — nội dung chính
+  của `.plan/P5_4-result.md` đã chép sang theo đúng quy ước chia sẻ.
+
+## 6. Còn lại
+- ⚠ **Chưa verify máy thật** (gộp **K51**): migration **v5→v6** trên DB có sẵn (transcript + báo cáo cũ
+  phải còn nguyên); Post-Review với endpoint **thật chậm (>4s)** phải ra báo cáo thay vì "hết thời gian
+  chờ"; **tắt mạng lúc "Kết thúc buổi"** ⇒ mở lại app (hoặc bấm nút trong Lịch sử) ⇒ buổi đó CÓ báo cáo
+  (đồng thời xác nhận catch-up không làm chậm việc mở app).
+- Skill mới `.agents/skills/flutter-dart-agent-pitfalls/SKILL.md` — ⚠️ `.agents/` bị gitignore nên
+  **không vào commit**, chỉ tồn tại trên máy dev.

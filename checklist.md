@@ -422,10 +422,62 @@ Cập nhật: 2026-09-21 15:30 (+07). Nguồn chi tiết: `.plan/P0-result.md`, 
 
 ### Chưa làm / cần hỏi lại (cập nhật buổi này)
 
-- [ ] **Chưa commit** lô này (issue1_fix + follow-up + docs) — chờ user ra lệnh.
+- [x] ~~**Chưa commit** lô này~~ → **ĐÃ commit + push (2026-09-23):** `370ac0f` issue1_fix · `efdf25e` follow-up summary · `d4f4943` docs. CI cho `d4f4943`: run `35879450819` (docs-only, code y hệt run `35867829942`) — APK `app-debug-apk` 114MB đã sẵn sàng cho K51.
 - [ ] ⚠ **Chưa verify trên máy thật** các phần P2.1/P5.1/P5.2/P5.3 (migration DB có sẵn, đổi tên phiên, retention, cấu hình LLM endpoint, nav 4 tab) — gộp K51, cần APK mới từ CI.
 - [ ] **K50 nay thu hẹp:** Post-Review **đã** persist (P5.1) — nợ còn lại chỉ là "xem lại báo cáo từ Lịch sử trên máy thật".
 - [ ] Hỏi lại: có giữ `human.md`/`TESTING.md` local-only (không commit) như hiện tại không? (hiện 2 file này ở ngoài git theo `.gitignore` custom).
 - [ ] Nhỏ, chờ lệnh: mục **`.project/openspec.md` §4 "Todo ngay tiếp theo"** liệt kê phase cần test máy thật nhưng **chưa có K51 + P2.1/P5.1/P5.2/P5.3** (nên thêm vào danh mục buổi test gộp).
+
+## Buổi 2026-09-24 — P5.4 (timeout theo use-case + phân tích bù phiên thiếu báo cáo)
+
+> Prompt: `.plan/prompt_P5_4.md` · Báo cáo: `.plan/P5_4-result.md`. Precondition P5.1/P5.2/P5.3: đạt
+> (commit `9259082` + 3 file kết quả). Đọc `databaseVersion` **thật** = 5 trước khi thêm migration.
+
+### Đã làm
+
+- [x] **Phần A — tách timeout theo đúng tính chất cuộc gọi:** Push **giữ nguyên 4s** (ràng buộc UX
+  cứng — có test: trả lời sau 4.5s ⇒ ở 3.9s chưa bỏ cuộc, ở 4.1s mới ném timeout); Post-Review +
+  Session Summary dùng `SuggestionConfig.postReviewTimeout` = **5 phút** (không chặn cuộc trò chuyện);
+  Test LLM 12s → **30s**; thêm `lib/suggestion/llm_http_client.dart` (`IOClient` +
+  `connectionTimeout` 10s) làm **lớp phòng thủ thứ 2** ở tầng socket cho cả provider lẫn Test LLM.
+- [x] **Phần B — phân tích bù:** schema **v6** (`sessions.last_analysis_attempt_ms`, chỉ thêm nhánh
+  `< 6`; nhánh `< 2..< 5` không bị sửa — kiểm bằng `git diff`); `TranscriptDao` +3 method
+  (`finishedSessionsWithoutReport`/`markAnalysisAttempted`/`fullSessionText`); **một chỗ duy nhất**
+  ghép/cắt transcript (`joinSessionText`) — `TranscriptStore.sessionTranscript()` uỷ quyền cho DAO ⇒
+  "phân tích ngay" và "phân tích lại sau" không thể lệch; `PostReviewService.runForSession` +
+  `_analyze` dùng chung; `lib/coaching/pending_analysis_service.dart` (tuần tự, throttle 6h, dừng cả
+  lượt khi lỗi hạ tầng, ghi mốc thử TRƯỚC khi gọi LLM); 2 trigger: `SessionCoordinator.init()`
+  (`unawaited` + cờ `_catchUpRunning`) và nút "Phân tích lại các buổi còn thiếu" trên AppBar Lịch sử.
+- [x] **Không tạo Android background service/WorkManager, không thêm quyền** — đúng ràng buộc prompt.
+- [x] **Test: 25 test mới** (9 timeout + 16 catch-up) ⇒ **424/424 pass**, `flutter analyze` **No issues
+  found!**. Test dùng đồng hồ giả (`fakeAsync`) + client giả trả lời sau độ trễ đặt trước (không mạng thật).
+- [x] **Review:** OCR **không khả dụng** (không có `ocr` CLI) ⇒ fallback review mặc định (đọc diff,
+  kiểm null/validate/secret/race); **2 lỗi tự tạo & tự sửa**: null-promotion sau `try/catch` (A67) và
+  `_FakeDao` thiếu member mới do đếm `noSuchMethod` theo file (A68). Secret scan sạch; dead-code: mọi
+  symbol mới đều có caller.
+- [x] **Sửa 1 test cũ (p5_2):** ghim cứng `databaseVersion == 5` đã vỡ lần thứ 2 ⇒ đổi thành assert
+  theo **quy tắc** (`== max(oldVersion < N)`), mạnh hơn và không cần bảo trì mỗi phase (A69).
+- [x] **Đồng bộ docs:** `.project/openspec.md` (+hàng P5.4, K51 thêm 3 mục máy-thật),
+  `.project/modules/storage.md` (v6 + mục `TranscriptDao` P5.4 + 2 cảnh báo mới), `next.md` (13g),
+  `features.md`, `faq.md` (+2 mục), `LESSONS_LEARNED.md` (**A67–A71**), `working.md`,
+  `result_20260924-1.txt` + `handoff_20260924-1.md`.
+- [x] **Skill mới (theo yêu cầu user):** `.agents/skills/flutter-dart-agent-pitfalls/SKILL.md` — 5 bẫy
+  Dart/Flutter đã thực sự cắn trong phiên (null-promotion, thêm member interface, test ghim số,
+  `pumpAndSettle` + animation vô hạn, ngoặc lồng trong `unawaited`) — dùng chung cho mọi project
+  Flutter. ⚠️ `.agents/` **bị gitignore** ⇒ skill này **không vào commit** (cùng tình trạng với skill
+  `ai-assistant-phone-debug-apk`), chỉ tồn tại trên máy dev.
+
+### Chưa làm / cần hỏi lại
+
+- [x] **Đã commit + push lô P5.4** (2026-09-24, sau khi user xác nhận — thay đổi chạm **schema DB v6**
+  vùng khó hoàn tác nên chờ lệnh mới commit): `62a959c` fix(llm) tách timeout → `f0d50ca` feat(coach)
+  catch-up → `a36ce8b` test → docs. `TESTING.md`/`human.md` giữ local-only.
+- [ ] ⚠ **Chưa verify máy thật** (gộp **K51**): migration **v5→v6** trên DB có sẵn; Post-Review với
+  endpoint thật chậm (>4s) phải ra báo cáo; tắt mạng lúc "Kết thúc buổi" ⇒ phân tích bù ra báo cáo;
+  catch-up không làm chậm mở app.
+- [x] **`.plan/P5_4-result.md` không vào git** (`.plan/` bị gitignore) ⇒ nội dung chính đã **chép sang**
+  `.project/openspec.md` + `checklist.md` + `handoff_20260924-1.md` (đúng quy ước chia sẻ đã chốt).
+- [ ] Còn treo từ trước: `.project/openspec.md` §4 "Todo ngay tiếp theo" liệt kê phase cần test máy
+  thật nhưng chưa có K51 + P2.1/P5.1–P5.4 (nên đưa vào danh mục buổi test gộp).
 
 ## Cần làm (thứ tự đề xuất — cũ, để tham chiếu)

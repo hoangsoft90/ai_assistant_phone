@@ -65,14 +65,33 @@ mặc định Groq khi user đã cấu hình endpoint khác.
 Có (P5.1): `deleteOlderThan` xoá transcript + báo cáo trong **cùng một transaction** — báo cáo không
 sống lâu hơn transcript (tránh "báo cáo về một buổi không còn dữ liệu").
 
+**Q: Sao nút Push gợi ý chỉ chờ 4 giây mà Post-Review lại chờ tới 5 phút?**
+Có chủ ý (P5.4) — timeout tách theo **tính chất cuộc gọi**, không dùng chung một con số:
+- **Push** (đang đứng nói chuyện, chờ ngay tại chỗ để nghe gợi ý): giữ **4 giây**. Để chờ lâu nghĩa là
+  người đối diện đứng nhìn mình cầm điện thoại im lặng; hết 4s thì **Offline Nudge Cache** (P3) cứu ngay.
+- **Post-Review + tóm tắt phiên** (chạy khi phiên đã dừng, không ai đang chờ): **5 phút** — trước đây
+  thừa hưởng 4s nên bị cắt ngang khi LLM phản hồi chậm, mất cả bản nhận xét của buổi đã bỏ ra.
+- **Test LLM** (chẩn đoán): 30 giây.
+Ngoài ra client HTTP có `connectionTimeout` 10 giây ở tầng socket — đây là thời gian **nối**, không
+phải thời gian chờ phản hồi; hai lớp cùng tồn tại.
+
+**Q: Bấm "Kết thúc buổi" hôm qua mà không thấy báo cáo — buổi đó mất luôn à?**
+Không mất (P5.4). Phiên + transcript **luôn** được lưu và đánh dấu kết thúc độc lập với kết quả LLM —
+chỉ báo cáo là thiếu khi lúc đó mạng/quota lỗi. Hai cách lấy lại báo cáo:
+1. **Tự động:** mở app lần sau (nếu đã có API key) → app chạy phân tích bù trong nền.
+2. **Thủ công:** tab **Lịch sử** → nút "Phân tích lại các buổi còn thiếu" (SnackBar nói rõ kết quả).
+Chạy **tuần tự** (không dồn request), **throttle 6 giờ/phiên** (phiên lỗi nội dung không bị đập lại liên
+tục), tối đa 5 phiên/lượt, và **dừng cả lượt** nếu lỗi là hạ tầng (thiếu key/mất mạng) vì các phiên
+khác cũng sẽ lỗi y hệt.
+
 **Q: Migration DB có làm mất dữ liệu transcript cũ không?**
 Không (đã chứng minh): v1→v4 và v3-có-dữ-liệu→v4 chạy trên SQLite thật — 0 dòng mất, `title` phiên cũ
 NULL (tên mặc định sinh lúc hiển thị). Nhánh migration cũ `< 2` giữ nguyên từng chữ, có test khoá.
-Nâng **v4→v5** (cột `ended_at_ms` — issue1_fix) thêm nhánh `< 5` mới, không đụng nhánh cũ; chưa chạy
-trên DB thật có sẵn — gộp K51.
+Nâng **v4→v5** (cột `ended_at_ms` — issue1_fix) và **v5→v6** (cột `last_analysis_attempt_ms` — P5.4) đều
+chỉ **thêm nhánh mới**, không đụng nhánh cũ; cả hai chưa chạy trên DB thật có sẵn — gộp K51.
 
 **Q: Chưa commit gì à? Có phải agent bỏ qua bước commit không?**
-Không còn. Từ 2026-09-21 repo đã có commit đều đặn (lần cuối: `9f678d2` docs đồng bộ openspec/checklist/next). Quy tắc vẫn giữ: phần **code** (đặc biệt vùng an toàn audio/DB) không tự commit khi thiếu xác nhận user; docs đồng bộ thì commit được. Vào thời điểm trước 2026-09-21 repo đúng là 0 commit — câu trả lời lúc đó đã lạc hậu.
+Không còn. Từ 2026-09-21 repo đã có commit đều đặn (lần cuối: nhóm commit P5.4 — timeout + phân tích bù + docs, 2026-09-24). Quy tắc vẫn giữ: phần **code** (đặc biệt vùng an toàn audio/DB) không tự commit khi thiếu xác nhận user; docs đồng bộ thì commit được. Vào thời điểm trước 2026-09-21 repo đúng là 0 commit — câu trả lời lúc đó đã lạc hậu.
 
 **Q: Sao `.plan/` không nằm trong git?**
 `.gitignore` của repo ignore `.plan` (cùng `.agents/`, `TESTING.md`, `human.md`), nên `prompt_*.md`, `plan_final_v2.md` và mọi báo cáo `.plan/*-result.md` **không** được commit — chúng là nguồn spec thật nhưng chỉ tồn tại trên máy. Khi cần chia sẻ cho người/agent khác, **chép nội dung sang `.project/`** (thư mục này commit bình thường) thay vì nói "đọc `.plan/…`" trong tài liệu.
