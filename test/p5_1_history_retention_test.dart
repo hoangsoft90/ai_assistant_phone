@@ -45,6 +45,39 @@ class _FakeDao implements TranscriptDao {
 
   int _nextId = 1;
 
+  /// P5.4: mốc lần THỬ phân tích bù của từng phiên (tương ứng cột `last_analysis_attempt_ms`).
+  final Map<int, DateTime> analysisAttempts = <int, DateTime>{};
+
+  @override
+  Future<List<TranscriptSession>> finishedSessionsWithoutReport({required int limit}) async {
+    final DateTime cutoff = DateTime.now().subtract(CoachingConfig.analysisRetryInterval);
+    final List<TranscriptSession> pending = sessions
+        .where((TranscriptSession s) =>
+            s.isFinished &&
+            !reports.containsKey(s.id) &&
+            (analysisAttempts[s.id] == null || analysisAttempts[s.id]!.isBefore(cutoff)))
+        .toList()
+      ..sort((TranscriptSession a, TranscriptSession b) => a.startedAt.compareTo(b.startedAt));
+    return pending.take(limit).toList();
+  }
+
+  @override
+  Future<void> markAnalysisAttempted(int sessionId, DateTime at) async {
+    analysisAttempts[sessionId] = at;
+  }
+
+  @override
+  Future<SessionText> fullSessionText(
+    int sessionId, {
+    int maxChars = CoachingConfig.transcriptCharLimit,
+  }) async =>
+      joinSessionText(
+        (segments[sessionId] ?? <TranscriptSegment>[])
+            .map((TranscriptSegment s) => s.text)
+            .toList(),
+        maxChars: maxChars,
+      );
+
   @override
   Future<TranscriptSession?> latestSession() async {
     if (sessions.isEmpty) {

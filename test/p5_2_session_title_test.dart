@@ -152,12 +152,20 @@ void main() {
       source = File('lib/services/storage/app_database.dart').readAsStringSync();
     });
 
-    test('databaseVersion tăng đúng 1 bậc so với version thật lúc bắt đầu P5.2 (3 ⇒ 4)', () {
-      // KHÔNG hard-code mù: P5.2 bắt đầu khi version thật = 3 (đọc từ code lúc bắt đầu phase).
-      // Cập nhật sau issue1_fix: version toàn cục giờ là 5 (issue1_fix thêm cột ended_at_ms qua
-      // nhánh riêng `< 5`); mốc 4 được khoá riêng ở test khác (databaseVersion >= 4 ⇒ schema title).
-      expect(StorageConfig.databaseVersion, greaterThanOrEqualTo(4));
-      expect(StorageConfig.databaseVersion, 5, reason: 'issue1_fix đã nâng lên 5');
+    test('databaseVersion khớp nhánh migration CAO NHẤT (không hard-code số của phase)', () {
+      // Trước P5.4 test này ghim cứng số version của phase gần nhất ⇒ vỡ MỖI lần lên version (đã vỡ ở
+      // issue1_fix và lại vỡ ở P5.4). Giữ đúng **quy tắc** thay vì con số — và mạnh hơn: nhánh
+      // migration cao nhất phải bằng `databaseVersion`, tức "tăng đúng 1 bậc và luôn có nhánh tương
+      // ứng" (đúng ràng buộc #7: mọi thay đổi schema phải qua migration).
+      final Iterable<RegExpMatch> branches = RegExp(r'oldVersion < (\d+)').allMatches(source);
+      expect(branches, isNotEmpty, reason: 'phải có ít nhất một nhánh migration');
+      final int highest = branches
+          .map((RegExpMatch m) => int.parse(m.group(1)!))
+          .reduce((int a, int b) => a > b ? a : b);
+      expect(StorageConfig.databaseVersion, highest,
+          reason: 'version phải bằng nhánh migration cao nhất');
+      expect(StorageConfig.databaseVersion, greaterThanOrEqualTo(4),
+          reason: 'v4 (P5.2) trở lên — schema `title` phải tồn tại');
     });
 
     test('có nhánh mới oldVersion < 4, thêm cột title bằng ALTER TABLE', () {

@@ -9,6 +9,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:ai_assistant_phone/audio/asr/asr_engine.dart';
+import 'package:ai_assistant_phone/core/constants.dart';
 import 'package:ai_assistant_phone/services/storage/transcript_dao.dart';
 import 'package:ai_assistant_phone/transcript/transcript_segment.dart';
 import 'package:ai_assistant_phone/transcript/transcript_store.dart';
@@ -29,6 +30,39 @@ class _FakeDao implements TranscriptDao {
   final Map<int, List<TranscriptSegment>> segments = <int, List<TranscriptSegment>>{};
   final Map<int, List<DateTime>> pushes = <int, List<DateTime>>{};
   final Map<int, PostReviewReportRow> reports = <int, PostReviewReportRow>{};
+
+  /// P5.4: mốc lần THỬ phân tích bù của từng phiên (tương ứng cột `last_analysis_attempt_ms`).
+  final Map<int, DateTime> analysisAttempts = <int, DateTime>{};
+
+  @override
+  Future<List<TranscriptSession>> finishedSessionsWithoutReport({required int limit}) async {
+    final DateTime cutoff = DateTime.now().subtract(CoachingConfig.analysisRetryInterval);
+    final List<TranscriptSession> pending = sessions
+        .where((TranscriptSession s) =>
+            s.isFinished &&
+            !reports.containsKey(s.id) &&
+            (analysisAttempts[s.id] == null || analysisAttempts[s.id]!.isBefore(cutoff)))
+        .toList()
+      ..sort((TranscriptSession a, TranscriptSession b) => a.startedAt.compareTo(b.startedAt));
+    return pending.take(limit).toList();
+  }
+
+  @override
+  Future<void> markAnalysisAttempted(int sessionId, DateTime at) async {
+    analysisAttempts[sessionId] = at;
+  }
+
+  @override
+  Future<SessionText> fullSessionText(
+    int sessionId, {
+    int maxChars = CoachingConfig.transcriptCharLimit,
+  }) async =>
+      joinSessionText(
+        (segments[sessionId] ?? <TranscriptSegment>[])
+            .map((TranscriptSegment s) => s.text)
+            .toList(),
+        maxChars: maxChars,
+      );
 
   /// Mốc cutoff của lần `deleteOlderThan` gần nhất — để test khẳng định đúng hạn 7 ngày.
   DateTime? lastCutoff;
