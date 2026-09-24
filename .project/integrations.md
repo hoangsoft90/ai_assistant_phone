@@ -1,9 +1,10 @@
 # integrations.md — Tích hợp bên thứ ba & cấu hình hệ thống
 
-Cập nhật: 2026-09-21 (+07).
+Cập nhật: 2026-09-24 (+07).
 
 > Trả lời thẳng mấy câu hay bị giả định sai: **không có Firebase, không có Supabase, không có push
-> notification, không có payment, không có backend, chưa có CI/CD.** Chi tiết ở mục 2.
+> notification, không có payment, không có backend.** CI/CD: **đã có GitHub Actions build APK** từ
+> P1E (mục 5). Chi tiết ở mục 2.
 
 ## 1. Thư viện đang dùng (tất cả trong `pubspec.yaml`)
 
@@ -86,10 +87,10 @@ Cập nhật: 2026-09-21 (+07).
 
 | Hạng mục | Trạng thái |
 |---|---|
-| GitHub Actions | ⏳ **chưa có**, nhưng **đã chốt sẽ dùng** để build APK (máy dev không có Android SDK) |
+| GitHub Actions | ✅ **đã có, chạy mỗi push `main`** — 2 workflow: `build-debug-apk.yml` (artifact `app-debug-apk`, ~115 MB) + `build-release-apk.yml` (R8/minify, APK release unsigned ~71 MB, upload `mapping.txt`). Máy dev không có Android SDK ⇒ **mọi APK đều đến từ CI** |
 | Fastlane | ❌ không có kế hoạch (app cá nhân, không phát hành store) |
-| Keystore/release signing | ⏳ chưa thiết lập — cần cho build release |
-| Repo GitHub | ⏳ **chưa có** — người dùng sẽ cung cấp |
+| Keystore/release signing | ⏳ chưa thiết lập (chốt với user ở P7 — release hiện debug-signed) |
+| Repo GitHub | ✅ `github.com/hoangsoft90/ai_assistant_phone` (private) |
 
 **Bối cảnh máy dev (để hiểu vì sao mọi thứ phải build qua CI):**
 - Máy dev Linux này **chỉ có `platform-tools` (adb)**, **không có** Android platforms / build-tools / NDK

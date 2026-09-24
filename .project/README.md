@@ -1,10 +1,11 @@
 # .project/ — Knowledge base của dự án
 
-Cập nhật: 2026-09-21 (+07). Đây là **entry point**: đọc file này trước, rồi theo link đi sâu.
+Cập nhật: 2026-09-24 (+07). Đây là **entry point**: đọc file này trước, rồi theo link đi sâu.
 
 > **Đọc cái này trước nếu bạn là agent mới mở project:** trạng thái hiện tại là
-> **app Flutter mới chỉ có khung (P0.5 bootstrap) — CHƯA có tính năng sản phẩm nào.**
-> Đừng giả định đã có auth / cart / payment / API: repo này **không có** những thứ đó.
+> **app Flutter có đủ khung + pipeline P0.5→P5.4 (code, chưa verify máy trọn vẹn) — KHÔNG có
+> auth / cart / payment / API / multi-tenant**: repo này **không có và sẽ không có** những thứ đó.
+> Vòng test máy thật gộp đang chờ (**K51**) — danh mục trong `human.md` + `TESTING.md`.
 
 ## Điều hướng
 
@@ -16,7 +17,7 @@ Cập nhật: 2026-09-21 (+07). Đây là **entry point**: đọc file này trư
 | [modules/](modules/README.md) | Từng module: cái gì đã có thật, cái gì mới là kế hoạch |
 | [integrations.md](integrations.md) | Thư viện & dịch vụ bên thứ ba, quyền hệ thống, CI/CD |
 | [design-system.md](design-system.md) | Màu/spacing/typography — hiện là Material 3 mặc định, chưa có token riêng |
-| [patterns.md](patterns.md) | Pattern code đang thực sự dùng trong repo (và pattern đã *định* dùng nhưng chưa có) |
+| [patterns.md](patterns.md) | Pattern code đang thực sự dùng trong repo (constructor injection cho seam test, quy ước clock trong test, và pattern đã *định* dùng nhưng chưa có) |
 | [openspec.md](openspec.md) | Tiến độ theo OpenSpec, việc đang làm, nợ kỹ thuật, bug đã biết |
 
 ## Bản đồ file ở gốc repo (ngoài `.project/`)
@@ -33,6 +34,7 @@ Cập nhật: 2026-09-21 (+07). Đây là **entry point**: đọc file này trư
 | `features.md` | Tính năng hiện có & toàn bộ tính năng tương lai |
 | `next.md` | Roadmap 15 phase + việc sắp tới + rủi ro |
 | `faq.md` | Thắc mắc/hiểu sai đã gặp, kèm câu trả lời |
+| `result_*.txt` / `handoff_*.md` | Kết quả + bàn giao từng buổi (mới nhất: `*20260924-2*` — fix SnackBar) |
 | `LESSONS_LEARNED.md` | Lỗi thật đã mắc + quy tắc chống tái phạm |
 | `.plan/` | **Bị gitignore** — prompt từng phase + `P0-result.md`, `P0_5-result.md`, `plan_final_v2.md` |
 | `spikes/p0_audio/` | Code thăm dò P0 (Flutter+Kotlin+JNI). Model ~133MB đã gitignore |

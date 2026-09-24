@@ -1,6 +1,6 @@
 # overview.md — Tổng quan ứng dụng
 
-Cập nhật: 2026-09-21 (+07).
+Cập nhật: 2026-09-24 (+07).
 
 ## 1. App là gì
 
@@ -60,9 +60,13 @@ App được thiết kế để **hỗ trợ người dùng đang phải giao ti
 
 ## 5. Trạng thái hiện tại (một câu)
 
-**Đã có:** project Flutter khung + foreground service + cấu hình audio session + SQLite + màn hình
-trạng thái; model ASR đã convert sẵn và đã đo baseline **trên host** (chưa trên điện thoại).
-**Chưa có:** bất kỳ tính năng sản phẩm nào (thu âm, ASR, TTS, gợi ý). **APK chưa từng được build.**
+**Đã có (2026-09-24):** pipeline P0.5→P5.4 code xong — thu âm (P1A), VAD (P1B), ASR offline
+PhoWhisper/Vosk (P1C/P1D), TTS an toàn qua tai nghe + Emergency (P1F/P1G), nudge LLM + Push/Emergency
+(P2/P2.1/P3), pipeline phiên (P4), coaching P5 (Pre-Brief/Summary/Post-Review/Lịch sử/retention/nav 4
+tab), phân tích bù + timeout theo use-case (P5.4), hardening tĩnh (P7); **428 test pass**, APK build qua
+CI liên tục; một số luồng đã verify trên máy thật (Pixel 3a — `.plan/ADB-TEST-result.md`).
+**Chưa có:** vòng test máy thật gộp trọn vẹn (**K51**), signing release. Chi tiết phase: `next.md` +
+`.project/openspec.md`.
 
 Chi tiết tiến độ: [openspec.md](openspec.md).
 

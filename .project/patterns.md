@@ -1,6 +1,6 @@
 # patterns.md — Pattern code đang dùng
 
-Cập nhật: 2026-09-21 (+07).
+Cập nhật: 2026-09-24 (+07, sau P5.4 + fix SnackBar messenger).
 
 > Quy tắc: file này chỉ ghi pattern **thực sự có trong code**. Pattern nào mới là kế hoạch thì nằm
 > ở mục 5 và ghi rõ "chưa có", để agent sau không tưởng là đã dùng.
@@ -55,11 +55,30 @@ void listeningTaskCallback() {
 khi app ở nền — lỗi chỉ lộ ra khi app thực sự chạy nền, không lộ khi test. Không được chuyển hàm này
 vào trong class hay biến nó thành closure.
 
-## 4. Dependency Injection: KHÔNG có
+## 4. Dependency Injection: constructor injection TỰ NHIÊN cho những gì test cần thay thế
 
-Chưa dùng `get_it`, `riverpod`, hay constructor injection. Thay thế hiện tại là `static` + lớp bọc.
-Lý do: phase bootstrap chưa có gì cần inject. **Mốc xem lại:** P1C (2 ASR engine) hoặc P1B (state
-machine) — chỗ đầu tiên thực sự cần thay thế implementation trong test.
+**Không dùng** `get_it`/`riverpod`/DI container. Nhưng từ P4→fix SnackBar (2026-09-24), các điểm cần
+thay implementation trong test đều là **constructor injection dạng tham số tuỳ chọn** (mặc định
+`null` = đường production), theo cùng một khuôn:
+
+```dart
+SessionCoordinator({
+  ...
+  AudioCaptureEngine? capture,          // test bơm fake capture (P4/P5.3)
+  PendingAnalysisService? pendingAnalysis, // test bơm service giả (P5.4)
+  TestLlmService? testLlm,              // test bơm service Test LLM giả (fix SnackBar)
+})  : session = ConversationSessionController(...),
+      pendingAnalysis = pendingAnalysis ?? PendingAnalysisService(),
+      _testLlm = testLlm ?? TestLlmService(),
+      ...;
+```
+
+Khuôn này là **cách chuẩn để thêm seam mới**: tham số tuỳ chọn trong constructor, initializer list
+`x = x ?? Default()`, không đổi hành vi production. Mốc xem lại về DI container: chỉ khi số seam
+làm constructor phình bất thường — hiện tại chưa cần.
+
+Pattern `abstract final class` + `static` **vẫn giữ** cho lớp bọc plugin không cần mock
+(nguyên văn phần dưới).
 
 ## 5. Pattern đã ĐỊNH dùng nhưng CHƯA có trong code
 
@@ -100,3 +119,11 @@ chứ không được rơi vào nhánh phát ra loa ngoài. Đừng copy khuôn 
 - Plugin native phải được **stub MethodChannel** trong `setUp` (xem `test/app_smoke_test.dart`).
   Khi thêm plugin mới → thêm tên channel vào danh sách stub, nếu không test đỏ vì thiếu native.
 - Test hiện tại chỉ kiểm UI/Dart; logic thật (service, DB, quyền) phải kiểm trên máy thật.
+- **Test widget bấm nút có SnackBar** (fix SnackBar, 2026-09-24): phải bấm trong cây
+  `RootScaffold` **đầy đủ** và xả timer (`flushSnackTimers`: SnackBar 4s + hàng đợi snack 4.1s/snack
+  của coordinator — A61); mẫu trong `test/snackbar_visibility_test.dart` (bất biến khoá: SnackBar
+  **không** có tổ tiên `IndexedStack`).
+- **Clock injection phải nhất quán** (A72): khi SUT nhận `now:` thì **mọi** fake/thứ tính thời gian
+  trong cùng test dùng **cùng** một đồng hồ — không để lại `DateTime.now()` thật trong fake
+  (test có "hạn dùng", tự đỏ sau mốc). Ví dụ: hằng `_fixedNow` của `p5_4_catchup_test.dart`; fake
+  không có đồng hồ riêng thì tính cutoff từ state của chính fake (mốc ghi gần nhất, fallback epoch).

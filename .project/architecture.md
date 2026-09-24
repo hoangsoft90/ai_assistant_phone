@@ -1,6 +1,6 @@
 # architecture.md — Kiến trúc code
 
-Cập nhật: 2026-09-21 (+07).
+Cập nhật: 2026-09-24 (+07).
 
 > **Đọc mục 0 trước.** Hiện repo mới có khung (P0.5). Các tầng trong mục 2 mới chỉ có **file
 > README + vài file khung**; luồng dữ liệu ở mục 3 là **thiết kế đã chốt nhưng chưa implement**.
@@ -33,7 +33,8 @@ android/app/src/main/
 ├── kotlin/com/aiassistant/phone/MainActivity.kt
 └── cpp/                       # (chưa có ở project chính) JNI whisper.cpp — hiện nằm ở spikes/
 test/
-└── app_smoke_test.dart        # smoke test UI, có stub MethodChannel của 4 plugin
+├── app_smoke_test.dart        # smoke test UI, có stub MethodChannel của các plugin
+└── (18+ file *_test.dart theo phase — nav 4 tab, catch-up, SnackBar visibility, ...)
 spikes/p0_audio/               # code thăm dò P0 — KHÔNG phải code sản phẩm
 ```
 
@@ -119,5 +120,5 @@ UI hiển thị gợi ý + Post-Review (P5)
   `com.tekartik.sqflite`, `plugins.it_nomads.com/flutter_secure_storage`,
   `flutter.baseflow.com/permissions/methods`). Khi thêm plugin mới, phải thêm stub tương ứng —
   nếu không test sẽ đỏ vì thiếu native.
-- **Không có** integration test / test trên máy thật trong CI (chưa có CI — xem
+- **Không có** integration test / test trên máy thật trong CI (CI hiện chỉ **build APK** — xem
   [integrations.md](integrations.md)).
