@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../core/app_logger.dart';
+import '../../core/constants.dart';
 import '../../transcript/transcript_segment.dart';
 import 'app_database.dart';
 
@@ -88,6 +89,57 @@ class PostReviewReportRow {
       '$segmentCount dòng${truncated ? ', cắt' : ''})';
 }
 
+/// Toàn bộ transcript của **một phiên bất kỳ** (P5.4) — không phụ thuộc `TranscriptStore` đang mở
+/// phiên nào.
+///
+/// Vì sao trả kèm [segmentCount]/[truncated] thay vì chỉ `String`: caller (Post-Review chạy bù) phải
+/// **nói được** cho người dùng khi nội dung bị cắt do trần ký tự gửi LLM, và phải ghi đúng số dòng
+/// vào báo cáo — cùng lý do `SessionTranscript` của `TranscriptStore` có hai trường này.
+class SessionText {
+  const SessionText({
+    required this.text,
+    required this.segmentCount,
+    required this.truncated,
+  });
+
+  final String text;
+
+  /// Tổng số dòng của phiên **trước** khi cắt.
+  final int segmentCount;
+
+  /// `true` nếu [text] đã bị cắt bớt (chỉ giữ phần cuối) do vượt [maxChars].
+  final bool truncated;
+
+  bool get isEmpty => text.isEmpty;
+
+  @override
+  String toString() =>
+      'SessionText($segmentCount dòng${truncated ? ', đã cắt' : ''} · ${text.length} ký tự)';
+}
+
+/// Ghép các dòng transcript thành text gửi LLM — **MỘT chỗ duy nhất**, dùng chung cho cả đường
+/// "phiên đang mở" (`TranscriptStore.sessionTranscript`) và "phiên bất kỳ"
+/// ([TranscriptDao.fullSessionText]).
+///
+/// Tách thành hàm riêng là để hai đường **không thể lệch nhau**: quy tắc cắt (cắt từ ĐẦU, giữ phần
+/// gần đây nhất — lý do ở `CoachingConfig.transcriptCharLimit`) là hợp đồng với LLM, nếu bản "phân
+/// tích lại sau" tự viết lại thì cùng một buổi sẽ cho kết quả khác nhau tuỳ đường vào.
+SessionText joinSessionText(List<String> lines, {required int maxChars}) {
+  final String full = lines.join('\n');
+  if (maxChars <= 0 || full.length <= maxChars) {
+    return SessionText(
+      text: full,
+      segmentCount: lines.length,
+      truncated: false,
+    );
+  }
+  return SessionText(
+    text: full.substring(full.length - maxChars),
+    segmentCount: lines.length,
+    truncated: true,
+  );
+}
+
 /// Truy cập dữ liệu transcript — **interface**, để `TranscriptStore` test được mà không cần SQLite
 /// thật (`sqflite` cần platform channel; test chỉ cần một bản giả trong bộ nhớ). Cùng cách đã dùng
 /// cho `ConfigStore` ở P1D.
@@ -150,6 +202,27 @@ abstract class TranscriptDao {
   Future<void> saveReport(int sessionId, PostReviewReportRow report);
 
   // --- issue1_fix: lifecycle phiên (ACTIVE vs FINISHED) ---
+
+  // --- P5.4: phân tích bù các phiên còn thiếu báo cáo ---
+
+  /// Các phiên **đã kết thúc chủ động**, **chưa có báo cáo** Post-Review, và **đã quá hạn throttle**
+  /// ([CoachingConfig.analysisRetryInterval] kể từ lần thử gần nhất) — **cũ nhất trước**, tối đa
+  /// [limit].
+  ///
+  /// Chỉ lấy phiên `endedAt != null`: phiên đang dở (app bị OS kill) chưa phải "buổi đã xong" —
+  /// phân tích nó bây giờ là kết luận vội về một cuộc nói chuyện có thể còn tiếp.
+  Future<List<TranscriptSession>> finishedSessionsWithoutReport({required int limit});
+
+  /// Ghi mốc lần **THỬ** phân tích gần nhất của phiên (P5.4). Caller phải gọi TRƯỚC khi gọi LLM: app
+  /// bị kill giữa chừng thì lần sau vẫn phải chờ hết throttle, không thử lại ngay.
+  Future<void> markAnalysisAttempted(int sessionId, DateTime at);
+
+  /// Toàn bộ transcript của phiên [sessionId] (**không cần** là phiên đang mở), cắt còn [maxChars]
+  /// theo đúng quy tắc của [joinSessionText].
+  Future<SessionText> fullSessionText(
+    int sessionId, {
+    int maxChars = CoachingConfig.transcriptCharLimit,
+  });
 
   /// Đánh dấu phiên [sessionId] đã kết thúc **chủ động** tại [endedAt] (issue1_fix mục 6).
   ///
@@ -417,6 +490,65 @@ class SqliteTranscriptDao implements TranscriptDao {
       segmentCount: row['segment_count']! as int,
       truncated: (row['truncated']! as int) != 0,
     );
+  }
+
+  @override
+  Future<List<TranscriptSession>> finishedSessionsWithoutReport({required int limit}) async {
+    final Database db = await AppDatabase.instance();
+    final DateTime cutoff =
+        DateTime.now().subtract(CoachingConfig.analysisRetryInterval);
+    // `NOT EXISTS` thay vì `LEFT JOIN ... IS NULL`: cùng ý nghĩa nhưng đọc đúng câu hỏi "phiên này
+    // KHÔNG có báo cáo nào", và không cần xử lý NULL thêm một lần nữa. Bảng báo cáo không có ràng
+    // buộc UNIQUE ở schema (việc "ghi đè" làm ở tầng DAO), nên phải là EXISTS chứ không so sánh 1 dòng.
+    final List<Map<String, Object?>> rows = await db.rawQuery(
+      'SELECT * FROM transcript_sessions s '
+      'WHERE s.ended_at_ms IS NOT NULL '
+      'AND (s.last_analysis_attempt_ms IS NULL OR s.last_analysis_attempt_ms < ?) '
+      'AND NOT EXISTS (SELECT 1 FROM post_review_reports r WHERE r.session_id = s.id) '
+      'ORDER BY s.started_at_ms ASC LIMIT ?',
+      <Object?>[cutoff.millisecondsSinceEpoch, limit],
+    );
+    return rows.map(_sessionFromRow).toList();
+  }
+
+  @override
+  Future<void> markAnalysisAttempted(int sessionId, DateTime at) async {
+    final Database db = await AppDatabase.instance();
+    final int changed = await db.update(
+      'transcript_sessions',
+      <String, Object?>{'last_analysis_attempt_ms': at.millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: <Object?>[sessionId],
+    );
+    if (changed == 0) {
+      // Phiên đã bị dọn theo retention giữa chừng — không có gì để ghi, không phải lỗi.
+      _log.warn('không ghi được mốc thử phân tích: phiên #$sessionId không còn trong DB');
+    }
+  }
+
+  @override
+  Future<SessionText> fullSessionText(
+    int sessionId, {
+    int maxChars = CoachingConfig.transcriptCharLimit,
+  }) async {
+    final Database db = await AppDatabase.instance();
+    final List<Map<String, Object?>> rows = await db.query(
+      'transcript_segments',
+      columns: <String>['text'],
+      where: 'session_id = ?',
+      whereArgs: <Object?>[sessionId],
+      orderBy: 'timestamp_ms ASC, id ASC',
+    );
+    final SessionText dump = joinSessionText(
+      rows.map((Map<String, Object?> row) => row['text']! as String).toList(),
+      maxChars: maxChars,
+    );
+    if (dump.truncated) {
+      _log.info(
+        'transcript phiên #$sessionId dài quá trần ⇒ cắt còn $maxChars ký tự (giữ phần cuối)',
+      );
+    }
+    return dump;
   }
 
   @override

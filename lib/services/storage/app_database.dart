@@ -52,7 +52,11 @@ abstract final class AppDatabase {
     await _createPostReviewSchema(db);
     await _addSessionTitleColumn(db);
     await _addSessionEndedColumn(db);
-    _log.info('đã tạo schema v$version (meta + transcript + post_review_reports + cột title + cột ended_at)');
+    await _addSessionAnalysisAttemptColumn(db);
+    _log.info(
+      'đã tạo schema v$version (meta + transcript + post_review_reports + cột title + cột ended_at '
+      '+ cột last_analysis_attempt_ms)',
+    );
   }
 
   /// Migration từng bước. KHÔNG được xoá/tạo lại DB của người dùng: máy đã cài bản P0.5 sẽ có DB
@@ -86,6 +90,16 @@ abstract final class AppDatabase {
       // Các nhánh `< 2`/`< 3`/`< 4` ở trên KHÔNG được sửa.
       await _addSessionEndedColumn(db);
       _log.info('migration v4 -> v5: đã thêm cột ended_at_ms vào transcript_sessions');
+    }
+    if (oldVersion < 6) {
+      // v5 -> v6 (P5.4): thêm cột `last_analysis_attempt_ms` vào `transcript_sessions` — mốc lần
+      // **THỬ** phân tích bù gần nhất cho phiên đó (đặt trước cả khi gọi LLM, xem
+      // `TranscriptDao.markAnalysisAttempted`). Dùng để throttle: phiên đã thử mà vẫn không ra báo
+      // cáo thì không bị đập lại liên tục mỗi lần mở app. Chỉ THÊM CỘT, `NULL` = chưa từng thử ⇒ dữ
+      // liệu phiên cũ giữ nguyên và đủ điều kiện được phân tích bù. Các nhánh `< 2`..`< 5` ở trên
+      // KHÔNG được sửa.
+      await _addSessionAnalysisAttemptColumn(db);
+      _log.info('migration v5 -> v6: đã thêm cột last_analysis_attempt_ms vào transcript_sessions');
     }
   }
 
@@ -152,6 +166,16 @@ abstract final class AppDatabase {
   /// chưa kết thúc chủ động (phiên crash/đang dở — được resume theo `resumeGap` như cũ).
   static Future<void> _addSessionEndedColumn(Database db) async {
     await db.execute('ALTER TABLE transcript_sessions ADD COLUMN ended_at_ms INTEGER');
+  }
+
+  /// Cột `last_analysis_attempt_ms` của phiên (P5.4) — dùng chung cho `onCreate` (máy mới) và nhánh
+  /// `oldVersion < 6` để hai đường không bao giờ lệch nhau.
+  ///
+  /// **CỐ Ý KHÔNG** đặt vào `_createTranscriptSchema`: helper đó còn được nhánh `< 2` gọi ⇒ sẽ
+  /// `duplicate column name` khi nâng từ DB v1 (cùng lý do `title`/`ended_at_ms` đã tách riêng).
+  /// `NULL` = chưa từng thử phân tích bù phiên này.
+  static Future<void> _addSessionAnalysisAttemptColumn(Database db) async {
+    await db.execute('ALTER TABLE transcript_sessions ADD COLUMN last_analysis_attempt_ms INTEGER');
   }
 
   /// Schema báo cáo Post-Review (P5.1) — dùng chung cho `onCreate` (máy mới) và nhánh

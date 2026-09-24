@@ -1,6 +1,9 @@
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
+
 import '../core/app_logger.dart';
+import '../core/constants.dart';
 import '../suggestion/groq_llm_provider.dart';
 import '../suggestion/llm_provider.dart';
 import '../suggestion/suggestion_models.dart';
@@ -32,13 +35,18 @@ class PostReviewReport {
     this.note,
     this.rawText,
     this.generatedAt,
+    this.infrastructureFailure = false,
   });
 
   /// Báo cáo khi KHÔNG phân tích được (chưa có transcript / mất mạng / chưa có API key / LLM trả
   /// định dạng lạ). Cố ý vẫn trả một đối tượng báo cáo thay vì `null`: UI phải luôn nói được **lý do**
   /// cho người dùng, im lặng hoặc hiện lỗi kỹ thuật đều không chấp nhận được với một buổi đã bỏ ra.
-  const PostReviewReport.unavailable({required this.note, this.segmentCount = 0, this.truncated = false})
-      : good = '',
+  const PostReviewReport.unavailable({
+    required this.note,
+    this.segmentCount = 0,
+    this.truncated = false,
+    this.infrastructureFailure = false,
+  })  : good = '',
         missed = '',
         exercise = '',
         fromLlm = false,
@@ -74,6 +82,19 @@ class PostReviewReport {
   /// Thời điểm phân tích xong (hiện trên UI để người dùng biết báo cáo thuộc buổi nào).
   final DateTime? generatedAt;
 
+  /// **P5.4** — `true` khi lần phân tích thất bại vì **hạ tầng dùng chung** (thiếu API key, mất mạng,
+  /// timeout, HTTP lỗi của endpoint), chứ không phải vì nội dung của riêng phiên này.
+  ///
+  /// Cần phân biệt để `PendingAnalysisService` biết khi nào phải **dừng cả lượt** phân tích bù: nếu
+  /// nguyên nhân là hạ tầng thì mọi phiên còn lại cũng sẽ lỗi y hệt — thử tiếp chỉ tốn thời gian,
+  /// pin và (với lỗi key/auth) cả quota API. Ngược lại, lỗi do nội dung phiên (LLM trả định dạng lạ)
+  /// thì chỉ phiên đó hỏng, các phiên khác vẫn nên được thử.
+  ///
+  /// Mọi nhánh đi qua [SuggestionException] đều được coi là lỗi hạ tầng: provider hiện chỉ ném
+  /// exception cho lỗi vận chuyển/cấu hình (thiếu key, mạng, timeout, HTTP ≠ 200) — còn lỗi nội dung
+  /// được xử lý riêng ở tầng parse (không ném).
+  final bool infrastructureFailure;
+
   bool get isUsable => fromLlm && good.isNotEmpty && missed.isNotEmpty && exercise.isNotEmpty;
 
   @override
@@ -105,12 +126,24 @@ class PostReviewService {
     this.maxTokens = 500,
     ConfigStore? llmConfigStore,
     ReportSink? reportSink,
+    TranscriptDao? transcriptDao,
+    http.Client? llmClient,
+    Future<String?> Function()? llmApiKeyReader,
   })  : _provider = provider ??
-            (llmConfigStore == null ? GroqLlmProvider() : GroqLlmProvider(configStore: llmConfigStore)),
+            GroqLlmProvider(
+              client: llmClient,
+              apiKeyReader: llmApiKeyReader,
+              configStore: llmConfigStore,
+              // P5.4: Post-Review KHÔNG chặn cuộc trò chuyện (chạy sau khi đối tác đã về) ⇒ dùng mốc 5
+              // phút, KHÔNG phải 4s của Push. Trước phase này nó thừa hưởng mặc định 4s và bị cắt
+              // ngang khi LLM phản hồi chậm.
+              timeout: SuggestionConfig.postReviewTimeout,
+            ),
         _transcript = transcript ?? TranscriptStore.instance(),
         _preBriefs = preBriefs ?? PreBriefStore.instance(),
         _now = now ?? DateTime.now,
-        _reportSink = reportSink ?? const SqliteReportSink();
+        _reportSink = reportSink ?? const SqliteReportSink(),
+        _transcriptDao = transcriptDao ?? const SqliteTranscriptDao();
 
   static const AppLogger _log = AppLogger('PostReview');
 
@@ -118,6 +151,11 @@ class PostReviewService {
   final TranscriptStore _transcript;
   final PreBriefStore _preBriefs;
   final DateTime Function() _now;
+
+  /// P5.4: đọc transcript của **phiên bất kỳ** (không phải phiên đang mở) khi phân tích lại các buổi
+  /// đã kết thúc mà chưa có báo cáo. Tách khỏi [_transcript] vì `TranscriptStore` chỉ đọc được phiên
+  /// hiện tại — dùng lầm nó cho việc này sẽ phân tích nhầm phiên.
+  final TranscriptDao _transcriptDao;
 
   /// Nơi lưu báo cáo dùng được (P5.1) — tách interface để test không cần SQLite.
   final ReportSink _reportSink;
@@ -147,44 +185,96 @@ class PostReviewService {
       return const PostReviewReport.unavailable(note: 'phiên này chưa có dòng transcript nào');
     }
 
-    final String prompt = buildPrompt(
-      transcript: transcript.text,
-      preBrief: _preBriefs.current.toPromptValue(),
+    return _analyze(
+      transcript.text,
+      sessionId: _transcript.sessionId,
+      segmentCount: transcript.segmentCount,
       truncated: transcript.truncated,
+    );
+  }
+
+  /// Phân tích lại **một phiên đã kết thúc** bất kỳ (P5.4) — dùng cho việc "chạy bù" các buổi mà
+  /// Post-Review lúc "Kết thúc buổi" đã thất bại (mất mạng/hết pin API/timeout).
+  ///
+  /// Khác [run] đúng ở **nguồn transcript**: đọc qua `TranscriptDao.fullSessionText(sessionId)` thay
+  /// vì `TranscriptStore` — phiên cần phân tích lại không phải phiên đang mở (thường là buổi hôm
+  /// trước), nên không thể đi qua cửa sổ phiên hiện tại. Phần build prompt / gọi LLM / parse / lưu
+  /// dùng CHUNG hàm [_analyze] với [run], nên "phân tích ngay" và "phân tích lại sau" không thể lệch
+  /// hành vi. Cùng hợp đồng với [run]: **không bao giờ ném**.
+  Future<PostReviewReport> runForSession(int sessionId) async {
+    _runCount++;
+    final SessionText dump;
+    try {
+      dump = await _transcriptDao.fullSessionText(sessionId);
+    } catch (error, stackTrace) {
+      _log.error('không đọc được transcript của phiên #$sessionId', error, stackTrace);
+      return const PostReviewReport.unavailable(note: 'lỗi đọc transcript');
+    }
+    if (dump.isEmpty) {
+      return const PostReviewReport.unavailable(note: 'phiên này chưa có dòng transcript nào');
+    }
+    return _analyze(
+      dump.text,
+      sessionId: sessionId,
+      segmentCount: dump.segmentCount,
+      truncated: dump.truncated,
+    );
+  }
+
+  /// Phần dùng chung của [run] và [runForSession]: prompt → LLM → parse → lưu. Không bao giờ ném.
+  ///
+  /// [sessionId] là phiên mà báo cáo sẽ được gắn vào; `null` = phiên transcript chưa mở (khi đó
+  /// vẫn trả báo cáo cho UI, chỉ không lưu được — xem [_persist]).
+  Future<PostReviewReport> _analyze(
+    String text, {
+    required int? sessionId,
+    required int segmentCount,
+    required bool truncated,
+  }) async {
+    final String prompt = buildPrompt(
+      transcript: text,
+      preBrief: _preBriefs.current.toPromptValue(),
+      truncated: truncated,
     );
     final String raw;
     try {
       raw = await _provider.complete(prompt: prompt, maxTokens: maxTokens);
     } on SuggestionException catch (error) {
       _log.warn('Post-Review không gọi được LLM: ${error.message}');
+      // P5.4: lỗi từ provider luôn là lỗi HẠ TẦNG (key/mạng/timeout/HTTP) — phiên khác cũng sẽ lỗi
+      // y hệt ⇒ lượt phân tích bù phải dừng, xem `PendingAnalysisService`.
       return PostReviewReport.unavailable(
         note: error.message,
-        segmentCount: transcript.segmentCount,
-        truncated: transcript.truncated,
+        segmentCount: segmentCount,
+        truncated: truncated,
+        infrastructureFailure: true,
       );
     } catch (error, stackTrace) {
       _log.error('Post-Review lỗi ngoài dự kiến', error, stackTrace);
       return PostReviewReport.unavailable(
         note: 'lỗi không xác định',
-        segmentCount: transcript.segmentCount,
-        truncated: transcript.truncated,
+        segmentCount: segmentCount,
+        truncated: truncated,
+        infrastructureFailure: true,
       );
     }
 
     final PostReviewReport? parsed = tryParseReport(
       raw,
-      segmentCount: transcript.segmentCount,
-      truncated: transcript.truncated,
+      segmentCount: segmentCount,
+      truncated: truncated,
       generatedAt: _now(),
     );
     if (parsed == null) {
+      // Lỗi do NỘI DUNG phiên này (LLM trả định dạng lạ) ⇒ KHÔNG phải lỗi hạ tầng: các phiên khác
+      // vẫn nên được thử trong cùng lượt phân tích bù.
       _log.warn('LLM trả định dạng lạ cho Post-Review — giữ văn bản thô');
       return PostReviewReport(
         good: '',
         missed: '',
         exercise: '',
-        segmentCount: transcript.segmentCount,
-        truncated: transcript.truncated,
+        segmentCount: segmentCount,
+        truncated: truncated,
         fromLlm: false,
         note: 'LLM trả định dạng lạ (không phải JSON 3 mục)',
         rawText: raw,
@@ -192,25 +282,28 @@ class PostReviewService {
     }
     // Log chỉ ghi SỐ LIỆU, không ghi nội dung (nội dung sinh từ hội thoại thật — quyết định từ P2).
     _log.info(
-      'Post-Review xong: ${transcript.segmentCount} dòng'
-      '${transcript.truncated ? ' (transcript đã cắt)' : ''}',
+      'Post-Review xong: $segmentCount dòng${truncated ? ' (transcript đã cắt)' : ''}',
     );
 
     // P5.1: lưu báo cáo dùng được để xem lại từ màn hình Lịch sử. GHI TRƯỚC khi caller đổi phiên
     // transcript (report được gắn với `sessionId` hiện tại — đúng dữ liệu vừa phân tích). Việc lưu
     // lỗi KHÔNG được làm hỏng trải nghiệm Post-Review: vẫn trả báo cáo cho UI như bình thường.
-    await _persist(parsed, transcript.segmentCount, transcript.truncated);
+    await _persist(parsed, sessionId: sessionId, segmentCount: segmentCount, truncated: truncated);
 
     return parsed;
   }
 
   /// Lưu báo cáo vào DB (P5.1). Chỉ lưu khi `isUsable` — báo cáo `unavailable`/thiếu mục không có
   /// giá trị xem lại, chỉ gây nhiễu Lịch sử. KHÔNG BAO GIỜ ném: DB đầy/lỗi chỉ được log.
-  Future<void> _persist(PostReviewReport report, int segmentCount, bool truncated) async {
+  Future<void> _persist(
+    PostReviewReport report, {
+    required int? sessionId,
+    required int segmentCount,
+    required bool truncated,
+  }) async {
     if (!report.isUsable) {
       return;
     }
-    final int? sessionId = _transcript.sessionId;
     if (sessionId == null) {
       _log.warn('không lưu được báo cáo: phiên transcript chưa mở');
       return;

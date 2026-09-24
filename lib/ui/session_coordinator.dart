@@ -15,6 +15,7 @@ import '../audio/tts/tts_client.dart';
 import '../audio/vad/conversation_state.dart';
 import '../audio/vad/conversation_state_notifier.dart';
 import '../coaching/ethics_gate.dart';
+import '../coaching/pending_analysis_service.dart';
 import '../coaching/post_review_service.dart';
 import '../coaching/session_summary.dart';
 import '../coaching/training_level.dart';
@@ -49,12 +50,14 @@ class SessionCoordinator extends ChangeNotifier {
     Future<bool> Function()? startService,
     Future<void> Function()? stopService,
     AudioCaptureEngine? capture,
+    PendingAnalysisService? pendingAnalysis,
   })  : session = ConversationSessionController(
           llmConfigStore: const MetaConfigStore(),
           startService: startService,
           stopService: stopService,
           capture: capture,
         ),
+        pendingAnalysis = pendingAnalysis ?? PendingAnalysisService(),
         _startServiceOverride = startService;
 
   static const AppLogger _log = AppLogger('HomeScreen');
@@ -78,6 +81,14 @@ class SessionCoordinator extends ChangeNotifier {
   final ConversationSessionController session;
 
   final Future<bool> Function()? _startServiceOverride;
+
+  /// **P5.4**: phân tích bù các buổi đã kết thúc mà chưa có báo cáo (Post-Review lỗi lúc "Kết thúc
+  /// buổi"). Bơm được để test không cần LLM/DB thật.
+  final PendingAnalysisService pendingAnalysis;
+
+  /// Cờ chặn hai lượt phân tích bù chạy chồng lên nhau khi `init()` bị gọi lại (mở lại app / dựng lại
+  /// màn hình nhiều lần liên tiếp). Trước phase này chưa có nhu cầu nên không có cờ.
+  bool _catchUpRunning = false;
 
   /// Controller capture dùng chung (lazy singleton) — chỉ chạm kênh native khi thực sự dùng.
   final AudioCaptureController capture = AudioCapture.instance;
@@ -194,6 +205,33 @@ class SessionCoordinator extends ChangeNotifier {
     unawaited(loadLlmConfig()); // P2.1: endpoint/model LLM đang dùng (hiển thị trạng thái).
     unawaited(loadCoachingSettings()); // P5: Pre-Brief đã lưu + Training Level.
     unawaited(loadRetentionDays()); // P5.1: hạn tự xoá đang có hiệu lực (hiển thị dropdown).
+    // P5.4: phân tích bù chạy SAU các lệnh load ở trên (không tranh tài nguyên với việc mở app) và
+    // luôn `unawaited` — không được chặn UI. Tự bỏ qua khi chưa có API key (kiểm trong service).
+    unawaited(catchUpPendingAnalyses());
+  }
+
+  /// Một lượt phân tích bù các buổi còn thiếu báo cáo (P5.4). Chạy nền, không bao giờ ném.
+  ///
+  /// Cố ý chỉ báo SnackBar khi **có** kết quả: mỗi lần mở app mà hiện thông báo "không có buổi nào
+  /// cần phân tích" sẽ thành tiếng ồn vô nghĩa. Ngược lại, khi vừa phân tích bù xong N buổi thì người
+  /// dùng cần biết (báo cáo xuất hiện "tự dưng" ở tab Lịch sử).
+  Future<void> catchUpPendingAnalyses() async {
+    if (_catchUpRunning) {
+      return;
+    }
+    _catchUpRunning = true;
+    try {
+      final PendingAnalysisOutcome outcome = await pendingAnalysis.catchUp();
+      if (outcome.analyzed > 0) {
+        enqueueSnack('Đã phân tích lại ${outcome.analyzed} buổi còn thiếu báo cáo.');
+      }
+    } catch (error, stackTrace) {
+      // Hợp đồng của service là không ném; đây là lưới an toàn cuối cùng — mở app không được crash.
+      _log.warn('phân tích bù lỗi ngoài dự kiến: $error');
+      _log.error('chi tiết phân tích bù lỗi', error, stackTrace);
+    } finally {
+      _catchUpRunning = false;
+    }
   }
 
   @override

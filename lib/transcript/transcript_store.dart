@@ -309,32 +309,22 @@ class TranscriptStore {
 
   /// Toàn bộ transcript của phiên đang chạy (P5) — nguồn dữ liệu cho tóm tắt định kỳ và Post-Review.
   ///
-  /// Đọc thẳng SQLite (không qua bộ nhớ rolling) vì cần cả phiên; vẫn đi qua đúng `_sessionId` hiện
-  /// tại nên không cần API DAO mới. Cắt từ **ĐẦU** khi vượt [maxChars]: phần gần đây là phần quyết
-  /// định cho cả gợi ý lẫn nhận xét cuối buổi (lý do chi tiết ở `CoachingConfig.transcriptCharLimit`).
+  /// Đọc thẳng SQLite (không qua bộ nhớ rolling) vì cần cả phiên. Cắt từ **ĐẦU** khi vượt
+  /// [maxChars]: phần gần đây là phần quyết định cho cả gợi ý lẫn nhận xét cuối buổi (lý do chi tiết
+  /// ở `CoachingConfig.transcriptCharLimit`).
+  ///
+  /// **P5.4:** uỷ quyền cho [TranscriptDao.fullSessionText] — cùng một hàm ghép/cắt dùng chung với
+  /// đường "phân tích lại buổi cũ" (`PostReviewService.runForSession`), nên hai đường không thể lệch
+  /// hành vi. Hàm này vẫn chỉ đọc phiên **đang mở**.
   Future<SessionTranscript> sessionTranscript({
     int maxChars = CoachingConfig.transcriptCharLimit,
   }) async {
     await init();
-    final int sessionId = _sessionId!;
-    final List<TranscriptSegment> segments =
-        await _dao.segmentsSince(sessionId, DateTime.fromMillisecondsSinceEpoch(0));
-    final String full =
-        segments.map((TranscriptSegment segment) => segment.text).join('\n');
-    if (maxChars <= 0 || full.length <= maxChars) {
-      return SessionTranscript(
-        text: full,
-        segmentCount: segments.length,
-        truncated: false,
-      );
-    }
-    _log.info(
-      'transcript phiên #$sessionId dài ${full.length} ký tự ⇒ cắt còn $maxChars (giữ phần cuối)',
-    );
+    final SessionText dump = await _dao.fullSessionText(_sessionId!, maxChars: maxChars);
     return SessionTranscript(
-      text: full.substring(full.length - maxChars),
-      segmentCount: segments.length,
-      truncated: true,
+      text: dump.text,
+      segmentCount: dump.segmentCount,
+      truncated: dump.truncated,
     );
   }
 

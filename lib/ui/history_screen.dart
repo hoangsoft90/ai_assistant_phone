@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../coaching/pending_analysis_service.dart';
 import '../coaching/post_review_service.dart';
 import '../services/storage/transcript_dao.dart';
 import '../transcript/session_display_name.dart';
@@ -16,11 +17,17 @@ import 'report_sections.dart';
 /// Không có thao tác xoá/sửa nội dung ở đây: dữ liệu được xoá **duy nhất** bởi cơ chế tự xoá theo
 /// hạn retention (mục 5.3 — quyền riêng tư). Người dùng không tự xoá từng dòng — tránh trạng thái
 /// "vì sao mất dữ liệu" không đoán được.
+///
+/// **P5.4:** thêm nút "Phân tích lại các buổi còn thiếu" trên AppBar — cùng service mà lúc mở app tự
+/// chạy, để người dùng chủ động chạy bù ngay khi cần thay vì chờ lần mở app sau.
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key, this.dao});
+  const HistoryScreen({super.key, this.dao, this.pendingAnalysis});
 
   /// Cho test bơm DAO giả; app dùng `SqliteTranscriptDao()`.
   final TranscriptDao? dao;
+
+  /// Cho test bơm service giả (P5.4); app dùng `PendingAnalysisService()` thật.
+  final PendingAnalysisService? pendingAnalysis;
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -28,10 +35,16 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   late final TranscriptDao _dao = widget.dao ?? const SqliteTranscriptDao();
+  late final PendingAnalysisService _pendingAnalysis =
+      widget.pendingAnalysis ?? PendingAnalysisService();
 
   List<TranscriptSession>? _sessions;
   final Set<int> _withReport = <int>{};
   String? _error;
+
+  /// Đang chạy phân tích bù (P5.4) — vừa là dấu hiệu trên icon, vừa chặn bấm chồng (mỗi lượt có thể
+  /// mất tới 5 phút/phiên theo `SuggestionConfig.postReviewTimeout`).
+  bool _catchingUp = false;
 
   @override
   void initState() {
@@ -73,6 +86,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
       appBar: AppBar(
         title: const Text('Lịch sử phiên'),
         actions: <Widget>[
+          IconButton(
+            onPressed: _catchingUp ? null : () => unawaited(_catchUp()),
+            icon: _catchingUp
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_fix_high_outlined),
+            tooltip: 'Phân tích lại các buổi còn thiếu',
+          ),
           IconButton(
             onPressed: () {
               setState(() => _sessions = null);
@@ -118,6 +142,45 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       },
                     ),
     );
+  }
+
+  /// **Phân tích lại các buổi còn thiếu báo cáo** (P5.4) — chạy đúng service mà lúc mở app tự chạy,
+  /// rồi đọc lại danh sách để chú thích "có nhận xét cuối buổi" cập nhật ngay.
+  ///
+  /// Mỗi tình huống có một câu khác nhau (xem `PendingAnalysisOutcome`): người dùng phải phân biệt
+  /// được "không có gì để làm" với "đã làm N buổi" với "dừng vì lý do X" — nếu không, bấm nút mà
+  /// không thấy gì sẽ bị hiểu là nút hỏng.
+  Future<void> _catchUp() async {
+    setState(() => _catchingUp = true);
+    PendingAnalysisOutcome? outcome;
+    String? failure;
+    try {
+      outcome = await _pendingAnalysis.catchUp();
+    } catch (error) {
+      // Hợp đồng của service là không ném; giữ lưới an toàn để UI không bao giờ treo ở trạng thái
+      // "đang chạy" vì một lỗi ngoài dự kiến.
+      failure = '$error';
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() => _catchingUp = false);
+    // Biến `final` cục bộ: `outcome` được gán trong `try` nên analyzer không promote nó sau đó.
+    final PendingAnalysisOutcome? result = outcome;
+    final String message;
+    if (result == null) {
+      message = 'Không phân tích lại được: $failure';
+    } else if (result.analyzed > 0) {
+      message = result.stoppedReason == null
+          ? 'Đã phân tích lại ${result.analyzed} buổi.'
+          : 'Đã phân tích lại ${result.analyzed} buổi. Dừng lại: ${result.stoppedReason}';
+    } else if (result.stoppedReason != null) {
+      message = 'Không phân tích lại được: ${result.stoppedReason}';
+    } else {
+      message = 'Không có buổi nào cần phân tích.';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    await _load();
   }
 
   void _enqueueNoReportSnack() {
